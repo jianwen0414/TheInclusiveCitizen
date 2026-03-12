@@ -1,14 +1,12 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Mic, Send, AlertTriangle, RefreshCw, Users } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { AlertTriangle, RefreshCw, Users } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { AIChatInput } from "@/components/ui/ai-chat-input"
 import { MessageBubble, TypingIndicator, Message } from "./MessageBubble"
 import { WaveformVisualizer } from "./WaveformVisualizer"
 import { Persona } from "./PersonaSelector"
-import { cn } from "@/lib/utils"
 
 interface ChatPanelProps {
   messages: Message[]
@@ -41,8 +39,8 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const [inputValue, setInputValue] = useState("")
   const [isRecording, setIsRecording] = useState(false)
+  const [detectedLanguage, setDetectedLanguage] = useState("English")
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -50,6 +48,14 @@ export function ChatPanel({
 
   const handleSend = () => {
     if (inputValue.trim()) {
+      // Simple heuristic for detected language display
+      const hasMalay = /\b(bagaimana|apa|saya|boleh|untuk)\b/i.test(inputValue)
+      const hasThai = /[\u0E00-\u0E7F]/.test(inputValue)
+      const hasChinese = /[\u4E00-\u9FFF]/.test(inputValue)
+      if (hasThai) setDetectedLanguage("Thai")
+      else if (hasChinese) setDetectedLanguage("Chinese")
+      else if (hasMalay) setDetectedLanguage("Bahasa Melayu")
+      else setDetectedLanguage("English")
       onSendMessage(inputValue.trim())
       setInputValue("")
     }
@@ -154,54 +160,21 @@ export function ChatPanel({
       {/* Input bar */}
       <div className="shrink-0 p-4 bg-card border-t border-border">
         <WaveformVisualizer isRecording={isRecording} />
-        
-        <div className="flex items-center gap-3">
-          <Input
-            ref={inputRef}
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Type or speak in any language..."
-            className={cn(
-              "flex-1 h-12 bg-cream border-border",
-              persona === "elderly" && "text-lg"
-            )}
-          />
-          
-          {/* Mic button */}
-          <div className="relative">
-            {isRecording && (
-              <span className="absolute inset-0 rounded-full bg-accent animate-pulse-ring" />
-            )}
-            <Button
-              size="icon"
-              onClick={toggleRecording}
-              className={cn(
-                "w-14 h-14 rounded-full shrink-0 transition-all",
-                isRecording
-                  ? "bg-red-500 hover:bg-red-600 text-white"
-                  : "bg-accent hover:bg-accent/90 text-accent-foreground",
-                persona === "rural" && "ring-4 ring-accent/30"
-              )}
-            >
-              <Mic className="w-6 h-6" />
-            </Button>
-          </div>
 
-          {/* Send button */}
-          <Button
-            size="icon"
-            onClick={handleSend}
-            disabled={!inputValue.trim()}
-            className="w-12 h-12 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shrink-0"
-          >
-            <Send className="w-5 h-5" />
-          </Button>
-        </div>
+        <AIChatInput
+          inputValue={inputValue}
+          onInputChange={setInputValue}
+          onSend={handleSend}
+          onKeyDown={handleKeyDown}
+          isRecording={isRecording}
+          onToggleVoice={toggleRecording}
+          detectedLanguage={detectedLanguage}
+          persona={persona}
+        />
 
         {/* Hint text */}
         <p className="text-xs text-muted-foreground text-center mt-2">
-          {persona === "rural" 
+          {persona === "rural"
             ? "Tap the microphone to speak"
             : "Speak in your language — we'll handle the rest"
           }
