@@ -22,7 +22,7 @@ export function ShareModal({ isOpen, onClose, message, userQuery }: ShareModalPr
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-md bg-surface p-0 overflow-hidden rounded-2xl shadow-elevation-3 border-0">
+      <DialogContent className="max-w-md bg-white p-0 overflow-hidden rounded-2xl shadow-elevation-3 border-0">
         <DialogHeader className="p-4 border-b border-border-subtle">
           <div className="flex items-center justify-between">
             <DialogTitle className="font-heading font-medium text-text-primary">

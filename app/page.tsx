@@ -206,51 +206,50 @@ export default function Home() {
             /* Welcome screen - Gemini style */
             <div className="flex-1 flex flex-col items-center justify-center px-6 pb-32">
               <div className="max-w-2xl w-full flex flex-col items-center text-center">
-                {/* Greeting */}
-                <h1 className="text-[40px] font-normal text-primary font-heading mb-2">
+                {/* Greeting - Gemini gradient style */}
+                <h1 className="text-[44px] font-normal font-heading mb-2 gemini-gradient">
                   Hello, there
                 </h1>
-                <p className="text-[32px] font-normal text-text-secondary font-heading mb-12">
-                  Ask about government services in any language
+                <p className="text-[28px] font-normal text-text-secondary font-heading mb-12">
+                  Want to try out a few things?
                 </p>
 
-                {/* Suggestion cards grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-xl">
-                  {/* Card 1 - Wide left */}
+                {/* Suggestion cards grid - Gemini style with images */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 w-full max-w-3xl">
+                  {/* Card 1 - Tall left */}
                   <button
                     onClick={() => handleSendMessage("Am I eligible for BSH financial aid?")}
-                    className="group relative flex flex-col items-start p-5 bg-surface rounded-2xl shadow-elevation-1 hover:shadow-elevation-2 hover:-translate-y-0.5 transition-all duration-200 text-left md:row-span-2"
+                    className="relative flex flex-col justify-between p-4 bg-blue-tint rounded-2xl hover:shadow-elevation-2 hover:-translate-y-0.5 transition-all duration-200 text-left md:row-span-2 min-h-[180px] overflow-hidden"
                   >
-                    <span className="text-sm font-medium text-text-primary mb-2">Check BSH eligibility</span>
-                    <span className="text-xs text-text-secondary">Find out if you qualify for government financial assistance</span>
-                    <Building2 className="absolute bottom-4 right-4 w-16 h-16 text-border-subtle group-hover:text-border opacity-60" />
+                    <span className="text-sm font-medium text-text-primary pr-12">Check BSH eligibility</span>
+                    <Building2 className="absolute bottom-4 right-4 w-14 h-14 text-google-blue/30" />
                   </button>
 
-                  {/* Card 2 - Top right */}
+                  {/* Card 2 - Top center (tall) */}
                   <button
                     onClick={() => handleSendMessage("How do I renew my work permit?")}
-                    className="group flex flex-col items-start p-5 bg-surface rounded-2xl shadow-elevation-1 hover:shadow-elevation-2 hover:-translate-y-0.5 transition-all duration-200 text-left"
+                    className="relative flex flex-col justify-between p-4 bg-green-tint rounded-2xl hover:shadow-elevation-2 hover:-translate-y-0.5 transition-all duration-200 text-left md:row-span-2 min-h-[180px] overflow-hidden"
                   >
-                    <span className="text-sm font-medium text-text-primary mb-1">Renew work permit</span>
-                    <Briefcase className="absolute bottom-3 right-3 w-8 h-8 text-border-subtle opacity-60" />
+                    <span className="text-sm font-medium text-text-primary pr-12">Renew work permit</span>
+                    <Briefcase className="absolute bottom-4 right-4 w-14 h-14 text-teal/30" />
                   </button>
 
-                  {/* Card 3 - Bottom right */}
+                  {/* Card 3 - Top right */}
                   <button
                     onClick={() => handleSendMessage("What healthcare subsidies am I entitled to?")}
-                    className="group flex flex-col items-start p-5 bg-surface rounded-2xl shadow-elevation-1 hover:shadow-elevation-2 hover:-translate-y-0.5 transition-all duration-200 text-left"
+                    className="relative flex flex-col justify-start p-4 bg-red-tint rounded-2xl hover:shadow-elevation-2 hover:-translate-y-0.5 transition-all duration-200 text-left min-h-[85px] overflow-hidden"
                   >
-                    <span className="text-sm font-medium text-text-primary mb-1">Find healthcare subsidies</span>
-                    <Heart className="absolute bottom-3 right-3 w-8 h-8 text-border-subtle opacity-60" />
+                    <span className="text-sm font-medium text-text-primary pr-10">Find healthcare subsidies</span>
+                    <Heart className="absolute bottom-3 right-3 w-10 h-10 text-gemini-coral/30" />
                   </button>
 
-                  {/* Card 4 */}
+                  {/* Card 4 - Bottom right */}
                   <button
                     onClick={() => handleSendMessage("What is the MyKad renewal process?")}
-                    className="group flex flex-col items-start p-5 bg-surface rounded-2xl shadow-elevation-1 hover:shadow-elevation-2 hover:-translate-y-0.5 transition-all duration-200 text-left md:col-span-2"
+                    className="relative flex flex-col justify-start p-4 bg-pill-bg rounded-2xl hover:shadow-elevation-2 hover:-translate-y-0.5 transition-all duration-200 text-left min-h-[85px] overflow-hidden"
                   >
-                    <span className="text-sm font-medium text-text-primary mb-1">MyKad renewal process</span>
-                    <CreditCard className="absolute bottom-3 right-3 w-8 h-8 text-border-subtle opacity-60" />
+                    <span className="text-sm font-medium text-text-primary pr-10">MyKad renewal process</span>
+                    <CreditCard className="absolute bottom-3 right-3 w-10 h-10 text-text-secondary/30" />
                   </button>
                 </div>
               </div>

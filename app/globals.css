@@ -7,9 +7,10 @@
 :root {
   /* Google Gemini Material You Color Palette */
   --google-blue: #1A73E8;
+  --gemini-coral: #E8453C;
   --teal: #00C9A7;
-  --page-bg: #F0F4F9;
-  --sidebar-bg: #F8FAFE;
+  --page-bg: #FFFFFF;
+  --sidebar-bg: #F8F9FA;
   --surface: #FFFFFF;
   --text-primary: #1F1F1F;
   --text-secondary: #5F6368;
@@ -21,7 +22,7 @@
   --footer-bg: #202124;
   --pill-bg: #F1F3F4;
   
-  --background: #F0F4F9;
+  --background: #FFFFFF;
   --foreground: #1F1F1F;
   --card: #FFFFFF;
   --card-foreground: #1F1F1F;
@@ -62,6 +63,7 @@
   --font-sans: var(--font-body), 'Noto Sans', sans-serif;
   --font-mono: 'Geist Mono', monospace;
   --color-google-blue: var(--google-blue);
+  --color-gemini-coral: var(--gemini-coral);
   --color-teal: var(--teal);
   --color-page-bg: var(--page-bg);
   --color-sidebar-bg: var(--sidebar-bg);
@@ -131,6 +133,14 @@
 }
 .shadow-elevation-3 {
   box-shadow: 0 4px 16px rgba(0,0,0,0.14), 0 2px 4px rgba(0,0,0,0.08);
+}
+
+/* Gemini signature gradient text */
+.gemini-gradient {
+  background: linear-gradient(90deg, #4285F4 0%, #9B72CB 25%, #D96570 50%, #D96570 75%, #9B72CB 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 /* Persona-adaptive modes */
