@@ -1,18 +1,19 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, useCallback } from "react"
 import { Check } from "lucide-react"
 import { AIChatInput } from "@/components/ui/ai-chat-input"
 import { MessageBubble, TypingIndicator, Message } from "./MessageBubble"
 import { WaveformVisualizer } from "./WaveformVisualizer"
 import { Persona } from "./PersonaSelector"
 import { cn } from "@/lib/utils"
+import { transcribeAudio } from "@/lib/api"
 
 interface ChatPanelProps {
   messages: Message[]
   isProcessing: boolean
   processingStep: string
-  onSendMessage: (message: string) => void
+  onSendMessage: (message: string, detectedLang?: string) => void
   onViewSource: (message: Message) => void
   onShare: (message: Message) => void
   persona: Persona
@@ -44,7 +45,11 @@ export function ChatPanel({
   const [inputValue, setInputValue] = useState("")
   const [isRecording, setIsRecording] = useState(false)
   const [detectedLanguage, setDetectedLanguage] = useState("English")
+  const [isTranscribing, setIsTranscribing] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const voiceLangRef = useRef<string | null>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -52,15 +57,9 @@ export function ChatPanel({
 
   const handleSend = () => {
     if (inputValue.trim()) {
-      const hasMalay = /\b(bagaimana|apa|saya|boleh|untuk)\b/i.test(inputValue)
-      const hasThai = /[\u0E00-\u0E7F]/.test(inputValue)
-      const hasChinese = /[\u4E00-\u9FFF]/.test(inputValue)
-      if (hasThai) setDetectedLanguage("Thai")
-      else if (hasChinese) setDetectedLanguage("Chinese")
-      else if (hasMalay) setDetectedLanguage("Bahasa Melayu")
-      else setDetectedLanguage("English")
-      onSendMessage(inputValue.trim())
+      onSendMessage(inputValue.trim(), voiceLangRef.current || undefined)
       setInputValue("")
+      voiceLangRef.current = null
     }
   }
 
@@ -71,9 +70,55 @@ export function ChatPanel({
     }
   }
 
-  const toggleRecording = () => {
-    setIsRecording(!isRecording)
-  }
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" })
+      audioChunksRef.current = []
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop())
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" })
+
+        setIsTranscribing(true)
+        try {
+          const result = await transcribeAudio(audioBlob)
+          setInputValue(result.text)
+          setDetectedLanguage(result.detected_language)
+          voiceLangRef.current = result.detected_language
+        } catch (err) {
+          console.error("Transcription failed:", err)
+        } finally {
+          setIsTranscribing(false)
+        }
+      }
+
+      mediaRecorderRef.current = recorder
+      recorder.start()
+      setIsRecording(true)
+    } catch (err) {
+      console.error("Microphone access denied:", err)
+    }
+  }, [])
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+    }
+  }, [])
+
+  const toggleRecording = useCallback(() => {
+    if (isRecording) {
+      stopRecording()
+    } else {
+      startRecording()
+    }
+  }, [isRecording, startRecording, stopRecording])
 
   // Welcome mode - just show input
   if (isWelcomeMode) {

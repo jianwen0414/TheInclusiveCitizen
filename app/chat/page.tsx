@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useRef } from "react"
 import { Menu, Search, PenLine, Settings, HelpCircle, Building2, Briefcase, Heart, CreditCard } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { PersonaSelector, Persona } from "@/components/PersonaSelector"
@@ -10,12 +10,9 @@ import { SourcePanel } from "@/components/SourcePanel"
 import { ShareModal } from "@/components/ShareModal"
 import { Message } from "@/components/MessageBubble"
 import { cn } from "@/lib/utils"
+import { queryBackend } from "@/lib/api"
 
-// Mock data for initial demo state
-const mockMessages: Message[] = []
-
-const processingSteps = [
-  "Transcribing...",
+const PROCESSING_STEPS = [
   "Detecting Language...",
   "Searching Documents...",
   "Generating Answer...",
@@ -32,7 +29,7 @@ const recentConversations = [
 
 export default function Home() {
   const [persona, setPersona] = useState<Persona>("elderly")
-  const [messages, setMessages] = useState<Message[]>(mockMessages)
+  const [messages, setMessages] = useState<Message[]>([])
   const [isProcessing, setIsProcessing] = useState(false)
   const [processingStep, setProcessingStep] = useState("")
   const [detectedLanguage, setDetectedLanguage] = useState("English")
@@ -42,43 +39,93 @@ export default function Home() {
   const [showSourcePanel, setShowSourcePanel] = useState(false)
   const [showShareModal, setShowShareModal] = useState(false)
   const [showMobileSidebar, setShowMobileSidebar] = useState(false)
+  const stepTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const simulateProcessing = useCallback(async () => {
+  const startProgressAnimation = useCallback(() => {
+    let stepIdx = 0
     setIsProcessing(true)
-    for (const step of processingSteps) {
-      setProcessingStep(step)
-      await new Promise((resolve) => setTimeout(resolve, 500))
-    }
-    setIsProcessing(false)
+    setProcessingStep(PROCESSING_STEPS[0])
+
+    stepTimerRef.current = setInterval(() => {
+      stepIdx++
+      if (stepIdx < PROCESSING_STEPS.length) {
+        setProcessingStep(PROCESSING_STEPS[stepIdx])
+      }
+    }, 1200)
   }, [])
 
-  const handleSendMessage = useCallback(async (content: string) => {
+  const stopProgressAnimation = useCallback(() => {
+    if (stepTimerRef.current) {
+      clearInterval(stepTimerRef.current)
+      stepTimerRef.current = null
+    }
+    setIsProcessing(false)
+    setProcessingStep("")
+  }, [])
+
+  const handleSendMessage = useCallback(async (content: string, voiceDetectedLang?: string) => {
     const userMessage: Message = {
       id: Date.now().toString(),
       type: "user",
-      content
+      content,
     }
     setMessages((prev) => [...prev, userMessage])
 
-    await simulateProcessing()
+    startProgressAnimation()
 
-    const aiMessage: Message = {
-      id: (Date.now() + 1).toString(),
-      type: "ai",
-      content: "Based on the official government documents, here is the information you requested. Please visit your nearest government office for verification.",
-      detectedLanguage: detectedLanguage,
-      readabilityGrade: 5.0,
-      semanticScore: 0.89,
-      translationModel: "google_tllm",
-      sourceDoc: "Government Services Guide 2025 — (Bahasa Malaysia)",
-      sourcePage: "Page 1, Section 1.1",
-      sourceExcerpt: "Maklumat yang diperlukan untuk permohonan...",
-      confidence: 0.85,
-      steps: ["Prepare required documents", "Visit government office", "Submit application", "Wait for processing"],
-      stepIcons: ["FileText", "Building2", "Send", "Clock"]
+    try {
+      const response = await queryBackend({
+        query: content,
+        persona,
+        language: voiceDetectedLang || null,
+      })
+
+      stopProgressAnimation()
+
+      const langName = response.detected_language || "English"
+      setDetectedLanguage(langName)
+
+      const translationModel: "google_tllm" | "nllb_200" | undefined =
+        response.translation_model === "google_tllm" ? "google_tllm"
+        : response.translation_model === "nllb200" ? "nllb_200"
+        : undefined
+
+      const aiMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        type: "ai",
+        content: response.answer,
+        detectedLanguage: langName,
+        readabilityGrade: response.readability_grade,
+        semanticScore: response.semantic_score,
+        translationModel,
+        sourceDoc: response.sources[0]?.doc_name
+          ? `${response.sources[0].doc_name} — (Bahasa Malaysia)`
+          : undefined,
+        sourcePage: response.sources[0]?.page_number
+          ? `Page ${response.sources[0].page_number}`
+          : undefined,
+        sourceExcerpt: response.sources[0]?.excerpt || response.original_text?.slice(0, 300),
+        confidence: response.confidence,
+        steps: response.steps || undefined,
+        stepIcons: response.step_icons || undefined,
+        audioUrl: response.audio_url || undefined,
+        disclaimer: response.disclaimer || undefined,
+        persona,
+      }
+      setMessages((prev) => [...prev, aiMessage])
+    } catch (err) {
+      stopProgressAnimation()
+      console.error("Query failed:", err)
+
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        type: "ai",
+        content: "Sorry, something went wrong while processing your request. Please try again.",
+        disclaimer: String(err),
+      }
+      setMessages((prev) => [...prev, errorMessage])
     }
-    setMessages((prev) => [...prev, aiMessage])
-  }, [detectedLanguage, simulateProcessing])
+  }, [persona, startProgressAnimation, stopProgressAnimation])
 
   const handleViewSource = useCallback((message: Message) => {
     setSourceMessage(message)

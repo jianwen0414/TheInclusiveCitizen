@@ -1,10 +1,12 @@
 "use client"
 
-import { Volume2, FileText, Share2, BookOpen } from "lucide-react"
+import { useState, useEffect, useRef } from "react"
+import { Volume2, Loader2, FileText, Share2, BookOpen } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { StepCards } from "./StepCards"
 import { TranslationBadge } from "./TranslationBadge"
+import { synthesiseSpeech } from "@/lib/api"
 
 export interface Message {
   id: string
@@ -20,6 +22,9 @@ export interface Message {
   confidence?: number
   steps?: string[]
   stepIcons?: string[]
+  audioUrl?: string
+  disclaimer?: string
+  persona?: string
 }
 
 interface MessageBubbleProps {
@@ -29,7 +34,50 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, onViewSource, onShare }: MessageBubbleProps) {
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false)
   const isUser = message.type === "user"
+
+  const handlePlayVoice = async () => {
+    if (isPlaying || isLoadingAudio) return
+
+    try {
+      let audioSrc = message.audioUrl
+
+      if (!audioSrc) {
+        setIsLoadingAudio(true)
+        const speed = message.persona === "elderly" ? 0.75 : 1.0
+        const lang = message.detectedLanguage?.split("-")[0] || "en"
+        const res = await synthesiseSpeech(message.content, lang, speed)
+        audioSrc = `data:${res.content_type};base64,${res.audio_base64}`
+      }
+
+      setIsLoadingAudio(false)
+      setIsPlaying(true)
+      const audio = new Audio(audioSrc)
+      audio.onended = () => setIsPlaying(false)
+      audio.onerror = () => setIsPlaying(false)
+      await audio.play()
+    } catch {
+      setIsLoadingAudio(false)
+      setIsPlaying(false)
+    }
+  }
+
+  // PRD F07/F08: Auto-play voice response for Warga Emas (elderly) persona
+  const hasAutoPlayed = useRef(false)
+  useEffect(() => {
+    if (
+      message.persona === "elderly" &&
+      message.type === "ai" &&
+      message.audioUrl &&
+      !hasAutoPlayed.current
+    ) {
+      hasAutoPlayed.current = true
+      handlePlayVoice()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [message.audioUrl])
 
   if (isUser) {
     return (
@@ -92,15 +140,28 @@ export function MessageBubble({ message, onViewSource, onShare }: MessageBubbleP
             <TranslationBadge model={message.translationModel} />
           )}
 
+          {/* Disclaimer if present */}
+          {message.disclaimer && (
+            <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl">
+              <p className="text-xs text-amber-700">{message.disclaimer}</p>
+            </div>
+          )}
+
           {/* Action buttons - text style */}
           <div className="flex flex-wrap gap-1 pt-2 border-t border-border-subtle">
             <Button
               variant="ghost"
               size="sm"
               className="gap-2 text-text-secondary hover:text-primary hover:bg-transparent"
+              onClick={handlePlayVoice}
+              disabled={isPlaying || isLoadingAudio}
             >
-              <Volume2 className="w-4 h-4" />
-              Play Voice
+              {isLoadingAudio ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Volume2 className="w-4 h-4" />
+              )}
+              {isPlaying ? "Playing..." : isLoadingAudio ? "Loading..." : "Play Voice"}
             </Button>
             <Button
               variant="ghost"
