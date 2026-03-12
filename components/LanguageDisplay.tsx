@@ -1,7 +1,6 @@
 "use client"
 
 import { Globe } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
 
 interface LanguageDisplayProps {
   detectedLanguage: string
@@ -9,21 +8,15 @@ interface LanguageDisplayProps {
 
 export function LanguageDisplay({ detectedLanguage }: LanguageDisplayProps) {
   return (
-    <div className="flex flex-col gap-3 p-4 bg-card rounded-xl border border-border">
+    <div className="flex flex-col gap-2 px-4">
       <div className="flex items-center gap-2">
-        <Globe className="w-4 h-4 text-accent" />
-        <span className="text-sm font-medium text-muted-foreground">
-          Detected Language
+        <Globe className="w-4 h-4 text-primary" />
+        <span className="text-sm text-text-secondary">
+          Detected: <span className="font-medium text-text-primary">{detectedLanguage}</span>
         </span>
       </div>
-      <Badge 
-        variant="secondary" 
-        className="w-fit text-sm font-medium bg-indigo text-primary border-0"
-      >
-        {detectedLanguage}
-      </Badge>
-      <p className="text-xs text-muted-foreground leading-relaxed">
-        Source documents: Bahasa Malaysia (official)
+      <p className="text-xs text-text-secondary leading-relaxed">
+        Source documents: Bahasa Malaysia
       </p>
     </div>
   )

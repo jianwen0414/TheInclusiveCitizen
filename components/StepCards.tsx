@@ -21,15 +21,15 @@ export function StepCards({ steps, stepIcons }: StepCardsProps) {
         return (
           <div
             key={index}
-            className="flex flex-col gap-2 min-w-[140px] max-w-[140px] p-3 bg-cream rounded-lg border-t-4 border-t-accent border border-border shrink-0"
+            className="flex flex-col gap-2 min-w-[140px] max-w-[140px] p-3 bg-surface rounded-2xl shadow-elevation-1 shrink-0"
           >
             <div className="flex items-center gap-2">
-              <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold">
+              <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-white text-xs font-bold">
                 {index + 1}
               </div>
-              <Icon className="w-4 h-4 text-accent" />
+              <Icon className="w-4 h-4 text-primary" />
             </div>
-            <p className="text-sm text-primary leading-snug">
+            <p className="text-sm text-text-primary leading-snug">
               {step}
             </p>
           </div>

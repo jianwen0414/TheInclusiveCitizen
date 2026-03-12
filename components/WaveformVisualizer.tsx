@@ -15,7 +15,7 @@ export function WaveformVisualizer({ isRecording }: WaveformVisualizerProps) {
         <div
           key={i}
           className={cn(
-            "w-1 bg-red-500 rounded-full transition-all",
+            "w-1 bg-teal rounded-full transition-all",
             "animate-[waveform_0.5s_ease-in-out_infinite]"
           )}
           style={{

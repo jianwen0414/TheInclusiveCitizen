@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback } from "react"
-import { MessageSquare, Info, Menu, X } from "lucide-react"
+import { Menu, Search, PenLine, Settings, HelpCircle, Building2, Briefcase, Heart, CreditCard } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { PersonaSelector, Persona } from "@/components/PersonaSelector"
 import { LanguageDisplay } from "@/components/LanguageDisplay"
@@ -12,48 +12,7 @@ import { Message } from "@/components/MessageBubble"
 import { cn } from "@/lib/utils"
 
 // Mock data for initial demo state
-const mockMessages: Message[] = [
-  {
-    id: "1",
-    type: "user",
-    content: "Am I eligible for BSH government financial aid?"
-  },
-  {
-    id: "2",
-    type: "ai",
-    content: "You may be eligible for BSH if your household income is below RM2,000 per month. You need to register at your nearest JKM office with your IC and income documents.",
-    detectedLanguage: "English",
-    readabilityGrade: 5.2,
-    semanticScore: 0.94,
-    translationModel: "google_tllm",
-    sourceDoc: "BSH Eligibility Guide 2025 — JKM (Bahasa Malaysia)",
-    sourcePage: "Page 3, Section 2.1",
-    sourceExcerpt: "Pemohon mestilah warganegara Malaysia yang mempunyai pendapatan isi rumah tidak melebihi RM2,000 sebulan...",
-    confidence: 0.87,
-    steps: ["Prepare your IC (MyKad)", "Get income proof or statutory declaration", "Visit your nearest JKM office", "Fill in application form BSH-01", "Wait for confirmation within 14 working days"],
-    stepIcons: ["CreditCard", "FileText", "Building2", "ClipboardList", "Clock"]
-  },
-  {
-    id: "3",
-    type: "user",
-    content: "Bagaimana cara perpanjang permit kerja saya?"
-  },
-  {
-    id: "4",
-    type: "ai",
-    content: "Untuk perpanjang permit kerja, Anda perlu mengunjungi pejabat JTK bersama majikan Anda. Bawa pasport, permit kerja lama, dan surat dari majikan.",
-    detectedLanguage: "Bahasa Indonesia",
-    readabilityGrade: 4.8,
-    semanticScore: 0.91,
-    translationModel: "google_tllm",
-    sourceDoc: "Panduan Permit Kerja Asing — JTK (Bahasa Malaysia)",
-    sourcePage: "Halaman 5, Seksyen 3.2",
-    sourceExcerpt: "Pembaharuan permit kerja hendaklah dibuat sebelum tarikh tamat tempoh...",
-    confidence: 0.82,
-    steps: ["Siapkan pasport dan permit lama", "Minta surat dari majikan", "Kunjungi pejabat JTK bersama majikan", "Isi borang permohonan", "Bayar yuran pembaharuan"],
-    stepIcons: ["FileText", "FileText", "Building2", "ClipboardList", "CreditCard"]
-  }
-]
+const mockMessages: Message[] = []
 
 const processingSteps = [
   "Transcribing...",
@@ -63,6 +22,12 @@ const processingSteps = [
   "Translating...",
   "Simplifying...",
   "Validating Accuracy..."
+]
+
+const recentConversations = [
+  "BSH eligibility requirements",
+  "Work permit renewal process",
+  "Healthcare subsidies info"
 ]
 
 export default function Home() {
@@ -88,7 +53,6 @@ export default function Home() {
   }, [])
 
   const handleSendMessage = useCallback(async (content: string) => {
-    // Add user message
     const userMessage: Message = {
       id: Date.now().toString(),
       type: "user",
@@ -96,10 +60,8 @@ export default function Home() {
     }
     setMessages((prev) => [...prev, userMessage])
 
-    // Simulate processing
     await simulateProcessing()
 
-    // Add mock AI response
     const aiMessage: Message = {
       id: (Date.now() + 1).toString(),
       type: "ai",
@@ -124,7 +86,6 @@ export default function Home() {
   }, [])
 
   const handleShare = useCallback((message: Message) => {
-    // Find the user query that preceded this AI message
     const messageIndex = messages.findIndex((m) => m.id === message.id)
     const userQuery = messageIndex > 0 ? messages[messageIndex - 1].content : ""
     setShareMessage(message)
@@ -132,107 +93,221 @@ export default function Home() {
     setShowShareModal(true)
   }, [messages])
 
+  const handleNewConversation = () => {
+    setMessages([])
+  }
+
   return (
     <div className={cn(
-      "h-screen flex flex-col lg:flex-row overflow-hidden",
+      "h-screen flex flex-col",
       persona === "elderly" && "mode-elderly"
     )}>
-      {/* Mobile header */}
-      <div className="lg:hidden flex items-center justify-between p-4 bg-card border-b border-border">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center justify-center w-8 h-8 bg-primary rounded-lg">
-            <MessageSquare className="w-4 h-4 text-primary-foreground" />
-          </div>
-          <span className="font-heading font-bold text-primary">
+      <div className="flex-1 flex overflow-hidden">
+        {/* Mobile header */}
+        <div className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3 bg-sidebar-bg border-b border-border-subtle">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-text-primary hover:bg-border-subtle"
+            onClick={() => setShowMobileSidebar(!showMobileSidebar)}
+          >
+            <Menu className="w-5 h-5" />
+          </Button>
+          <span className="font-heading font-medium text-primary text-lg">
             The Inclusive Citizen
           </span>
+          <Button variant="ghost" size="icon" className="text-text-primary hover:bg-border-subtle">
+            <Search className="w-5 h-5" />
+          </Button>
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setShowMobileSidebar(!showMobileSidebar)}
-        >
-          {showMobileSidebar ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-        </Button>
+
+        {/* Left Sidebar - Gemini style */}
+        <aside className={cn(
+          "w-64 shrink-0 bg-sidebar-bg flex flex-col border-r border-border-subtle",
+          "fixed lg:relative inset-y-0 left-0 z-40 transition-transform duration-200 ease-out",
+          "pt-14 lg:pt-0",
+          showMobileSidebar ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        )}>
+          {/* Top row - Menu + Search */}
+          <div className="hidden lg:flex items-center justify-between p-4">
+            <Button variant="ghost" size="icon" className="text-text-primary hover:bg-border-subtle rounded-full">
+              <Menu className="w-5 h-5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="text-text-primary hover:bg-border-subtle rounded-full">
+              <Search className="w-5 h-5" />
+            </Button>
+          </div>
+
+          {/* New conversation button */}
+          <div className="px-3 pb-4">
+            <button
+              onClick={handleNewConversation}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-full hover:bg-border-subtle transition-colors duration-150"
+            >
+              <PenLine className="w-5 h-5 text-text-primary" />
+              <span className="text-sm font-medium text-text-primary">New conversation</span>
+            </button>
+          </div>
+
+          {/* Scrollable content */}
+          <div className="flex-1 overflow-y-auto px-3">
+            {/* Personas section */}
+            <div className="mb-6">
+              <h3 className="px-4 mb-2 text-[11px] font-medium text-text-secondary uppercase tracking-wider">
+                Personas
+              </h3>
+              <PersonaSelector
+                selectedPersona={persona}
+                onSelectPersona={(p) => {
+                  setPersona(p)
+                  setShowMobileSidebar(false)
+                }}
+              />
+            </div>
+
+            {/* Recent section */}
+            <div className="mb-6">
+              <h3 className="px-4 mb-2 text-[11px] font-medium text-text-secondary uppercase tracking-wider">
+                Recent
+              </h3>
+              <div className="flex flex-col">
+                {recentConversations.map((title, i) => (
+                  <button
+                    key={i}
+                    className="px-4 py-2.5 text-left text-sm text-text-secondary hover:bg-border-subtle rounded-lg transition-colors duration-150 truncate"
+                  >
+                    {title}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Language display */}
+            <div className="mb-6">
+              <h3 className="px-4 mb-2 text-[11px] font-medium text-text-secondary uppercase tracking-wider">
+                Language
+              </h3>
+              <LanguageDisplay detectedLanguage={detectedLanguage} />
+            </div>
+          </div>
+
+          {/* Bottom - Settings */}
+          <div className="shrink-0 p-3 border-t border-border-subtle">
+            <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-text-secondary hover:bg-border-subtle rounded-lg transition-colors duration-150">
+              <Settings className="w-5 h-5" />
+              <span>Settings & help</span>
+            </button>
+          </div>
+        </aside>
+
+        {/* Main content area */}
+        <main className="flex-1 flex flex-col min-w-0 pt-14 lg:pt-0">
+          {messages.length === 0 ? (
+            /* Welcome screen - Gemini style */
+            <div className="flex-1 flex flex-col items-center justify-center px-6 pb-32">
+              <div className="max-w-2xl w-full flex flex-col items-center text-center">
+                {/* Greeting */}
+                <h1 className="text-[40px] font-normal text-primary font-heading mb-2">
+                  Hello, there
+                </h1>
+                <p className="text-[32px] font-normal text-text-secondary font-heading mb-12">
+                  Ask about government services in any language
+                </p>
+
+                {/* Suggestion cards grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-xl">
+                  {/* Card 1 - Wide left */}
+                  <button
+                    onClick={() => handleSendMessage("Am I eligible for BSH financial aid?")}
+                    className="group relative flex flex-col items-start p-5 bg-surface rounded-2xl shadow-elevation-1 hover:shadow-elevation-2 hover:-translate-y-0.5 transition-all duration-200 text-left md:row-span-2"
+                  >
+                    <span className="text-sm font-medium text-text-primary mb-2">Check BSH eligibility</span>
+                    <span className="text-xs text-text-secondary">Find out if you qualify for government financial assistance</span>
+                    <Building2 className="absolute bottom-4 right-4 w-16 h-16 text-border-subtle group-hover:text-border opacity-60" />
+                  </button>
+
+                  {/* Card 2 - Top right */}
+                  <button
+                    onClick={() => handleSendMessage("How do I renew my work permit?")}
+                    className="group flex flex-col items-start p-5 bg-surface rounded-2xl shadow-elevation-1 hover:shadow-elevation-2 hover:-translate-y-0.5 transition-all duration-200 text-left"
+                  >
+                    <span className="text-sm font-medium text-text-primary mb-1">Renew work permit</span>
+                    <Briefcase className="absolute bottom-3 right-3 w-8 h-8 text-border-subtle opacity-60" />
+                  </button>
+
+                  {/* Card 3 - Bottom right */}
+                  <button
+                    onClick={() => handleSendMessage("What healthcare subsidies am I entitled to?")}
+                    className="group flex flex-col items-start p-5 bg-surface rounded-2xl shadow-elevation-1 hover:shadow-elevation-2 hover:-translate-y-0.5 transition-all duration-200 text-left"
+                  >
+                    <span className="text-sm font-medium text-text-primary mb-1">Find healthcare subsidies</span>
+                    <Heart className="absolute bottom-3 right-3 w-8 h-8 text-border-subtle opacity-60" />
+                  </button>
+
+                  {/* Card 4 */}
+                  <button
+                    onClick={() => handleSendMessage("What is the MyKad renewal process?")}
+                    className="group flex flex-col items-start p-5 bg-surface rounded-2xl shadow-elevation-1 hover:shadow-elevation-2 hover:-translate-y-0.5 transition-all duration-200 text-left md:col-span-2"
+                  >
+                    <span className="text-sm font-medium text-text-primary mb-1">MyKad renewal process</span>
+                    <CreditCard className="absolute bottom-3 right-3 w-8 h-8 text-border-subtle opacity-60" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Input box at bottom of welcome */}
+              <div className="absolute bottom-24 left-0 right-0 px-6">
+                <div className="max-w-3xl mx-auto">
+                  <ChatPanel
+                    messages={[]}
+                    isProcessing={isProcessing}
+                    processingStep={processingStep}
+                    onSendMessage={handleSendMessage}
+                    onViewSource={handleViewSource}
+                    onShare={handleShare}
+                    persona={persona}
+                    isWelcomeMode
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Chat mode */
+            <ChatPanel
+              messages={messages}
+              isProcessing={isProcessing}
+              processingStep={processingStep}
+              onSendMessage={handleSendMessage}
+              onViewSource={handleViewSource}
+              onShare={handleShare}
+              persona={persona}
+            />
+          )}
+        </main>
+
+        {/* Right source panel */}
+        <aside className={cn(
+          "w-80 shrink-0 bg-surface",
+          "fixed lg:relative inset-y-0 right-0 z-50 transition-transform duration-200 ease-out",
+          "shadow-elevation-3 lg:shadow-none",
+          showSourcePanel ? "translate-x-0" : "translate-x-full"
+        )}>
+          <SourcePanel
+            message={sourceMessage}
+            onClose={() => setShowSourcePanel(false)}
+          />
+        </aside>
       </div>
 
-      {/* Left Sidebar */}
-      <aside className={cn(
-        "w-full lg:w-72 shrink-0 bg-card border-r border-border flex flex-col",
-        "fixed lg:relative inset-0 top-14 lg:top-0 z-40 lg:z-0 transition-transform duration-300",
-        showMobileSidebar ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-      )}>
-        {/* Logo section - hidden on mobile */}
-        <div className="hidden lg:flex flex-col gap-1 p-4 border-b border-border">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-10 h-10 bg-primary rounded-xl">
-              <MessageSquare className="w-5 h-5 text-primary-foreground" />
-            </div>
-            <div className="flex flex-col">
-              <span className="font-heading font-bold text-primary leading-tight">
-                The Inclusive Citizen
-              </span>
-              <span className="text-xs text-accent font-medium">
-                AI-Powered Public Services
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto p-4">
-          <div className="flex flex-col gap-6">
-            <PersonaSelector
-              selectedPersona={persona}
-              onSelectPersona={(p) => {
-                setPersona(p)
-                setShowMobileSidebar(false)
-              }}
-            />
-            
-            <LanguageDisplay detectedLanguage={detectedLanguage} />
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="shrink-0 p-4 border-t border-border">
-          <div className="flex flex-col gap-2">
-            <button className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors">
-              <Info className="w-4 h-4" />
-              About this project
-            </button>
-            <p className="text-xs text-muted-foreground">
-              USM | V Hack 2026
-            </p>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main chat panel */}
-      <main className="flex-1 flex flex-col min-w-0 h-[calc(100vh-56px)] lg:h-screen">
-        <ChatPanel
-          messages={messages}
-          isProcessing={isProcessing}
-          processingStep={processingStep}
-          onSendMessage={handleSendMessage}
-          onViewSource={handleViewSource}
-          onShare={handleShare}
-          persona={persona}
-        />
-      </main>
-
-      {/* Right source panel */}
-      <aside className={cn(
-        "w-full lg:w-80 shrink-0 bg-card",
-        "fixed lg:relative inset-y-0 right-0 z-50 lg:z-0 transition-transform duration-300",
-        showSourcePanel ? "translate-x-0" : "translate-x-full lg:translate-x-full",
-        showSourcePanel && "lg:translate-x-0"
-      )}>
-        <SourcePanel
-          message={sourceMessage}
-          onClose={() => setShowSourcePanel(false)}
-        />
-      </aside>
+      {/* Bottom branding bar */}
+      <footer className="shrink-0 h-12 bg-footer-bg flex items-center justify-between px-6">
+        <span className="text-sm font-medium text-white font-heading">
+          The Inclusive Citizen
+        </span>
+        <span className="text-sm text-text-placeholder">
+          V Hack 2026 — USM
+        </span>
+      </footer>
 
       {/* Share modal */}
       <ShareModal
@@ -245,7 +320,7 @@ export default function Home() {
       {/* Mobile sidebar overlay */}
       {showMobileSidebar && (
         <div
-          className="fixed inset-0 bg-black/50 z-30 lg:hidden"
+          className="fixed inset-0 bg-black/30 z-30 lg:hidden"
           onClick={() => setShowMobileSidebar(false)}
         />
       )}

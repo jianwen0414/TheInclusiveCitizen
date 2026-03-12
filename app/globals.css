@@ -5,56 +5,76 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* The Inclusive Citizen Color Palette */
-  --navy: #1A3A8F;
+  /* Google Gemini Material You Color Palette */
+  --google-blue: #1A73E8;
   --teal: #00C9A7;
-  --cream: #FAFAF7;
-  --indigo: #EEF2FF;
+  --page-bg: #F0F4F9;
+  --sidebar-bg: #F8FAFE;
+  --surface: #FFFFFF;
+  --text-primary: #1F1F1F;
+  --text-secondary: #5F6368;
+  --text-placeholder: #9AA0A6;
+  --border-subtle: #E8EAED;
+  --blue-tint: #E8F0FE;
+  --red-tint: #FCE8E6;
+  --green-tint: #E6F4EA;
+  --footer-bg: #202124;
+  --pill-bg: #F1F3F4;
   
-  --background: #FAFAF7;
-  --foreground: #1A3A8F;
+  --background: #F0F4F9;
+  --foreground: #1F1F1F;
   --card: #FFFFFF;
-  --card-foreground: #1A3A8F;
+  --card-foreground: #1F1F1F;
   --popover: #FFFFFF;
-  --popover-foreground: #1A3A8F;
-  --primary: #1A3A8F;
+  --popover-foreground: #1F1F1F;
+  --primary: #1A73E8;
   --primary-foreground: #FFFFFF;
-  --secondary: #EEF2FF;
-  --secondary-foreground: #1A3A8F;
-  --muted: #EEF2FF;
-  --muted-foreground: #64748b;
+  --secondary: #E8F0FE;
+  --secondary-foreground: #1A73E8;
+  --muted: #F1F3F4;
+  --muted-foreground: #5F6368;
   --accent: #00C9A7;
   --accent-foreground: #FFFFFF;
   --destructive: #ef4444;
   --destructive-foreground: #FFFFFF;
-  --border: #e2e8f0;
-  --input: #e2e8f0;
-  --ring: #00C9A7;
-  --chart-1: #00C9A7;
-  --chart-2: #1A3A8F;
+  --border: #E8EAED;
+  --input: #E8EAED;
+  --ring: #1A73E8;
+  --chart-1: #1A73E8;
+  --chart-2: #00C9A7;
   --chart-3: #f59e0b;
   --chart-4: #10b981;
   --chart-5: #6366f1;
-  --radius: 0.75rem;
-  --sidebar: #FAFAF7;
-  --sidebar-foreground: #1A3A8F;
-  --sidebar-primary: #1A3A8F;
+  --radius: 1rem;
+  --sidebar: #F8FAFE;
+  --sidebar-foreground: #1F1F1F;
+  --sidebar-primary: #1A73E8;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #EEF2FF;
-  --sidebar-accent-foreground: #1A3A8F;
-  --sidebar-border: #e2e8f0;
-  --sidebar-ring: #00C9A7;
+  --sidebar-accent: #E8F0FE;
+  --sidebar-accent-foreground: #1A73E8;
+  --sidebar-border: #E8EAED;
+  --sidebar-ring: #1A73E8;
 }
 
 @theme inline {
-  --font-heading: var(--font-heading), 'Plus Jakarta Sans', sans-serif;
+  --font-heading: var(--font-heading), 'Google Sans', sans-serif;
   --font-body: var(--font-body), 'Noto Sans', sans-serif;
   --font-sans: var(--font-body), 'Noto Sans', sans-serif;
   --font-mono: 'Geist Mono', monospace;
-  --color-navy: var(--navy);
+  --color-google-blue: var(--google-blue);
   --color-teal: var(--teal);
-  --color-cream: var(--cream);
-  --color-indigo: var(--indigo);
+  --color-page-bg: var(--page-bg);
+  --color-sidebar-bg: var(--sidebar-bg);
+  --color-surface: var(--surface);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-placeholder: var(--text-placeholder);
+  --color-border-subtle: var(--border-subtle);
+  --color-blue-tint: var(--blue-tint);
+  --color-red-tint: var(--red-tint);
+  --color-green-tint: var(--green-tint);
+  --color-footer-bg: var(--footer-bg);
+  --color-pill-bg: var(--pill-bg);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -98,8 +118,19 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-cream text-foreground;
+    @apply bg-page-bg text-foreground;
   }
+}
+
+/* Material You Shadow System */
+.shadow-elevation-1 {
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+.shadow-elevation-2 {
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
+}
+.shadow-elevation-3 {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.14), 0 2px 4px rgba(0,0,0,0.08);
 }
 
 /* Persona-adaptive modes */

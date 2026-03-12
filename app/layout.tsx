@@ -1,13 +1,7 @@
 import type { Metadata, Viewport } from 'next'
-import { Plus_Jakarta_Sans, Noto_Sans } from 'next/font/google'
+import { Noto_Sans } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
-
-const plusJakartaSans = Plus_Jakarta_Sans({
-  subsets: ['latin'],
-  variable: '--font-heading',
-  display: 'swap',
-})
 
 const notoSans = Noto_Sans({
   subsets: ['latin', 'latin-ext'],
@@ -39,7 +33,7 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#1A3A8F',
+  themeColor: '#1A73E8',
   width: 'device-width',
   initialScale: 1,
 }
@@ -50,7 +44,12 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${plusJakartaSans.variable} ${notoSans.variable}`}>
+    <html lang="en" className={notoSans.variable}>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
+      </head>
       <body className="font-body antialiased">
         {children}
         <Analytics />

@@ -2,16 +2,16 @@
 
 import * as React from "react"
 import { useState, useEffect, useRef } from "react"
-import { Globe, Mic, Paperclip, Send } from "lucide-react"
+import { Globe, Mic, Plus, Send } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import { cn } from "@/lib/utils"
 
 const PLACEHOLDERS = [
+  "Ask about government services...",
   "Am I eligible for BSH financial aid?",
   "How do I renew my work permit?",
   "What documents do I need for MyKad renewal?",
   "Can I withdraw from KWSP early?",
-  "How do I register for MySejahtera?",
   "What healthcare subsidies am I entitled to?",
 ]
 
@@ -40,14 +40,14 @@ const AIChatInput = ({
 }: AIChatInputProps) => {
   const [placeholderIndex, setPlaceholderIndex] = useState(0)
   const [showPlaceholder, setShowPlaceholder] = useState(true)
-  const [isActive, setIsActive] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
   const [translateActive, setTranslateActive] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Cycle placeholder text when input is inactive
   useEffect(() => {
-    if (isActive || inputValue) return
+    if (isFocused || inputValue) return
 
     const interval = setInterval(() => {
       setShowPlaceholder(false)
@@ -58,7 +58,7 @@ const AIChatInput = ({
     }, 3000)
 
     return () => clearInterval(interval)
-  }, [isActive, inputValue])
+  }, [isFocused, inputValue])
 
   // Close expanded state when clicking outside
   useEffect(() => {
@@ -67,7 +67,7 @@ const AIChatInput = ({
         wrapperRef.current &&
         !wrapperRef.current.contains(event.target as Node)
       ) {
-        if (!inputValue) setIsActive(false)
+        if (!inputValue) setIsFocused(false)
       }
     }
     document.addEventListener("mousedown", handleClickOutside)
@@ -75,49 +75,36 @@ const AIChatInput = ({
   }, [inputValue])
 
   const handleActivate = () => {
-    setIsActive(true)
+    setIsFocused(true)
     inputRef.current?.focus()
-  }
-
-  const containerVariants = {
-    collapsed: {
-      height: 68,
-      boxShadow: "0 2px 8px 0 rgba(26,58,143,0.08)",
-      transition: { type: "spring", stiffness: 120, damping: 18 },
-    },
-    expanded: {
-      height: 128,
-      boxShadow: "0 8px 32px 0 rgba(26,58,143,0.14)",
-      transition: { type: "spring", stiffness: 120, damping: 18 },
-    },
   }
 
   const placeholderContainerVariants = {
     initial: {},
-    animate: { transition: { staggerChildren: 0.025 } },
-    exit: { transition: { staggerChildren: 0.015, staggerDirection: -1 } },
+    animate: { transition: { staggerChildren: 0.02 } },
+    exit: { transition: { staggerChildren: 0.01, staggerDirection: -1 } },
   }
 
   const letterVariants = {
-    initial: { opacity: 0, filter: "blur(12px)", y: 10 },
+    initial: { opacity: 0, filter: "blur(8px)", y: 6 },
     animate: {
       opacity: 1,
       filter: "blur(0px)",
       y: 0,
       transition: {
-        opacity: { duration: 0.25 },
-        filter: { duration: 0.4 },
-        y: { type: "spring", stiffness: 80, damping: 20 },
+        opacity: { duration: 0.2 },
+        filter: { duration: 0.3 },
+        y: { type: "spring", stiffness: 100, damping: 20 },
       },
     },
     exit: {
       opacity: 0,
-      filter: "blur(12px)",
-      y: -10,
+      filter: "blur(8px)",
+      y: -6,
       transition: {
-        opacity: { duration: 0.2 },
-        filter: { duration: 0.3 },
-        y: { type: "spring", stiffness: 80, damping: 20 },
+        opacity: { duration: 0.15 },
+        filter: { duration: 0.2 },
+        y: { type: "spring", stiffness: 100, damping: 20 },
       },
     },
   }
@@ -126,31 +113,21 @@ const AIChatInput = ({
     ? `${detectedLanguage} Detected`
     : "Translate"
 
+  const showSendButton = inputValue.trim().length > 0
+
   return (
-    <motion.div
+    <div
       ref={wrapperRef}
-      className={cn("w-full", className)}
-      variants={containerVariants}
-      animate={isActive || inputValue ? "expanded" : "collapsed"}
-      initial="collapsed"
-      style={{ overflow: "hidden", borderRadius: 32, background: "#FAFAF7" }}
+      className={cn(
+        "w-full bg-surface border rounded-3xl transition-all duration-200",
+        isFocused || inputValue ? "border-primary shadow-elevation-2" : "border-border-subtle shadow-elevation-1",
+        className
+      )}
       onClick={handleActivate}
     >
-      <div className="flex flex-col items-stretch w-full h-full">
+      <div className="flex flex-col">
         {/* Input Row */}
-        <div className="flex items-center gap-2 p-3 rounded-full bg-[#FAFAF7] w-full">
-          {/* Paperclip — hidden per requirements */}
-          <button
-            className="p-3 rounded-full transition"
-            title="Attach file"
-            type="button"
-            tabIndex={-1}
-            style={{ display: "none" }}
-            aria-hidden="true"
-          >
-            <Paperclip size={20} />
-          </button>
-
+        <div className="flex items-center gap-2 px-4 py-3">
           {/* Text Input & Animated Placeholder */}
           <div className="relative flex-1">
             <input
@@ -160,19 +137,19 @@ const AIChatInput = ({
               onChange={(e) => onInputChange(e.target.value)}
               onKeyDown={onKeyDown}
               onFocus={handleActivate}
+              onBlur={() => !inputValue && setIsFocused(false)}
               className={cn(
-                "border-0 outline-none rounded-md py-2 text-base bg-transparent w-full font-body text-foreground",
+                "border-0 outline-none py-2 text-base bg-transparent w-full font-body text-text-primary placeholder:text-text-placeholder",
                 persona === "elderly" && "text-lg",
               )}
-              style={{ position: "relative", zIndex: 1 }}
               aria-label="Chat input"
             />
             <div className="absolute left-0 top-0 w-full h-full pointer-events-none flex items-center py-2">
               <AnimatePresence mode="wait">
-                {showPlaceholder && !isActive && !inputValue && (
+                {showPlaceholder && !isFocused && !inputValue && (
                   <motion.span
                     key={placeholderIndex}
-                    className="absolute left-0 top-1/2 -translate-y-1/2 text-muted-foreground select-none pointer-events-none text-base"
+                    className="absolute left-0 top-1/2 -translate-y-1/2 text-text-placeholder select-none pointer-events-none text-base"
                     style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", zIndex: 0 }}
                     variants={placeholderContainerVariants}
                     initial="initial"
@@ -194,21 +171,73 @@ const AIChatInput = ({
             </div>
           </div>
 
-          {/* Voice toggle button */}
+          {/* Send button - only visible when there's input */}
+          <AnimatePresence>
+            {showSendButton && (
+              <motion.button
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.8 }}
+                className="flex items-center justify-center w-10 h-10 bg-primary hover:bg-primary/90 text-white rounded-full transition-colors"
+                title="Send"
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onSend()
+                }}
+              >
+                <Send size={18} />
+              </motion.button>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Bottom toolbar row */}
+        <div className="flex items-center justify-between px-4 pb-3">
+          <div className="flex items-center gap-2">
+            {/* Plus button */}
+            <button
+              className="flex items-center justify-center w-9 h-9 rounded-full text-text-secondary hover:bg-border-subtle transition-colors"
+              title="Add attachment"
+              type="button"
+            >
+              <Plus size={20} />
+            </button>
+
+            {/* Translate toggle chip */}
+            <motion.button
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors",
+                translateActive
+                  ? "bg-blue-tint text-primary"
+                  : "bg-pill-bg text-text-secondary hover:bg-border-subtle"
+              )}
+              title="Translate"
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                setTranslateActive((a) => !a)
+              }}
+            >
+              <Globe size={16} />
+              <span>{translateLabel}</span>
+            </motion.button>
+          </div>
+
+          {/* Mic button */}
           <div className="relative">
             {isRecording && (
               <span className="absolute inset-0 rounded-full bg-teal/40 animate-pulse-ring" />
             )}
             <button
               className={cn(
-                "p-3 rounded-full transition-all",
+                "flex items-center justify-center w-9 h-9 rounded-full transition-all",
                 isRecording
-                  ? "bg-[#00C9A7] text-white"
-                  : "hover:bg-indigo text-foreground"
+                  ? "bg-teal text-white"
+                  : "text-text-secondary hover:bg-border-subtle"
               )}
               title="Voice input"
               type="button"
-              tabIndex={-1}
               onClick={(e) => {
                 e.stopPropagation()
                 onToggleVoice()
@@ -217,78 +246,9 @@ const AIChatInput = ({
               <Mic size={20} />
             </button>
           </div>
-
-          {/* Send button */}
-          <button
-            className="flex items-center gap-1 bg-[#1A3A8F] hover:bg-[#1A3A8F]/90 text-white p-3 rounded-full font-medium justify-center transition-colors disabled:opacity-40"
-            title="Send"
-            type="button"
-            tabIndex={-1}
-            disabled={!inputValue.trim()}
-            onClick={(e) => {
-              e.stopPropagation()
-              onSend()
-            }}
-          >
-            <Send size={18} />
-          </button>
         </div>
-
-        {/* Expanded Controls */}
-        <motion.div
-          className="w-full flex justify-start px-4 items-center text-sm"
-          variants={{
-            hidden: {
-              opacity: 0,
-              y: 20,
-              pointerEvents: "none" as const,
-              transition: { duration: 0.25 },
-            },
-            visible: {
-              opacity: 1,
-              y: 0,
-              pointerEvents: "auto" as const,
-              transition: { duration: 0.35, delay: 0.08 },
-            },
-          }}
-          initial="hidden"
-          animate={isActive || inputValue ? "visible" : "hidden"}
-          style={{ marginTop: 8 }}
-        >
-          <div className="flex gap-3 items-center">
-            {/* Translate Toggle */}
-            <motion.button
-              className={cn(
-                "flex items-center px-4 gap-1.5 py-2 rounded-full transition font-medium whitespace-nowrap overflow-hidden justify-start font-body",
-                translateActive
-                  ? "bg-[#00C9A7]/10 outline outline-[#00C9A7]/60 text-[#1A3A8F]"
-                  : "bg-indigo text-foreground hover:bg-indigo/80"
-              )}
-              title="Translate"
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                setTranslateActive((a) => !a)
-              }}
-              initial={false}
-              animate={{
-                width: translateActive ? "auto" : 40,
-                paddingLeft: translateActive ? 16 : 10,
-              }}
-            >
-              <Globe size={16} className="shrink-0" />
-              <motion.span
-                className="pb-[1px] text-sm"
-                initial={false}
-                animate={{ opacity: translateActive ? 1 : 0, width: translateActive ? "auto" : 0 }}
-              >
-                {translateLabel}
-              </motion.span>
-            </motion.button>
-          </div>
-        </motion.div>
       </div>
-    </motion.div>
+    </div>
   )
 }
 

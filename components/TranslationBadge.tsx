@@ -1,7 +1,5 @@
 "use client"
 
-import { Badge } from "@/components/ui/badge"
-
 interface TranslationBadgeProps {
   model: "google_tllm" | "nllb_200"
 }
@@ -10,19 +8,19 @@ export function TranslationBadge({ model }: TranslationBadgeProps) {
   const modelInfo = {
     google_tllm: {
       label: "Google Cloud TLLM",
-      className: "bg-indigo text-primary"
+      className: "bg-blue-tint text-primary"
     },
     nllb_200: {
       label: "NLLB-200 (offline)",
-      className: "bg-amber-100 text-amber-800"
+      className: "bg-pill-bg text-text-secondary"
     }
   }
 
   const info = modelInfo[model]
 
   return (
-    <Badge variant="outline" className={`text-xs ${info.className} border-0`}>
+    <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${info.className}`}>
       Translated by {info.label}
-    </Badge>
+    </span>
   )
 }
