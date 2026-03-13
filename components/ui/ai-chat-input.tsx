@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useState, useEffect, useRef } from "react"
-import { Globe, Mic, Plus, Send } from "lucide-react"
+import { Globe, Mic, Plus, Send, Square } from "lucide-react"
 import { AnimatePresence, motion } from "motion/react"
 import { cn } from "@/lib/utils"
 
@@ -21,6 +21,7 @@ interface AIChatInputProps {
   onSend: () => void
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void
   isRecording: boolean
+  isTranscribing?: boolean
   onToggleVoice: () => void
   detectedLanguage?: string
   className?: string
@@ -33,6 +34,7 @@ const AIChatInput = ({
   onSend,
   onKeyDown,
   isRecording,
+  isTranscribing = false,
   onToggleVoice,
   detectedLanguage,
   className,
@@ -114,6 +116,7 @@ const AIChatInput = ({
     : "Translate"
 
   const showSendButton = inputValue.trim().length > 0
+  const showTranscribingPlaceholder = isTranscribing && !inputValue
 
   return (
     <div
@@ -144,9 +147,14 @@ const AIChatInput = ({
               )}
               aria-label="Chat input"
             />
-            <div className="absolute left-0 top-0 w-full h-full pointer-events-none flex items-center py-2">
+              <div className="absolute left-0 top-0 w-full h-full pointer-events-none flex items-center py-2">
               <AnimatePresence mode="wait">
-                {showPlaceholder && !isFocused && !inputValue && (
+                {showTranscribingPlaceholder && (
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 text-primary text-base">
+                    Transcribing…
+                  </span>
+                )}
+                {showPlaceholder && !isFocused && !inputValue && !showTranscribingPlaceholder && (
                   <motion.span
                     key={placeholderIndex}
                     className="absolute left-0 top-1/2 -translate-y-1/2 text-text-placeholder select-none pointer-events-none text-base"
@@ -224,26 +232,34 @@ const AIChatInput = ({
             </motion.button>
           </div>
 
-          {/* Mic button */}
-          <div className="relative">
+          {/* Mic / Stop button */}
+          <div className="relative flex items-center gap-2">
             {isRecording && (
               <span className="absolute inset-0 rounded-full bg-teal/40 animate-pulse-ring" />
             )}
             <button
               className={cn(
-                "flex items-center justify-center w-9 h-9 rounded-full transition-all",
+                "flex items-center justify-center gap-1.5 min-w-[2.25rem] h-9 rounded-full transition-all",
                 isRecording
-                  ? "bg-teal text-white"
-                  : "text-text-secondary hover:bg-border-subtle"
+                  ? "bg-teal text-white px-3"
+                  : "text-text-secondary hover:bg-border-subtle w-9"
               )}
-              title="Voice input"
+              title={isRecording ? "Stop recording" : "Voice input"}
               type="button"
               onClick={(e) => {
                 e.stopPropagation()
+                e.preventDefault()
                 onToggleVoice()
               }}
             >
-              <Mic size={20} />
+              {isRecording ? (
+                <>
+                  <Square size={18} fill="currentColor" />
+                  <span className="text-sm font-medium">Stop</span>
+                </>
+              ) : (
+                <Mic size={20} />
+              )}
             </button>
           </div>
         </div>

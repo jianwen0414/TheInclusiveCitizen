@@ -11,6 +11,7 @@ import { ShareModal } from "@/components/ShareModal"
 import { Message } from "@/components/MessageBubble"
 import { cn } from "@/lib/utils"
 import { queryBackend } from "@/lib/api"
+import { getLanguageName } from "@/components/MessageBubble"
 
 const PROCESSING_STEPS = [
   "Detecting Language...",
@@ -82,7 +83,8 @@ export default function Home() {
 
       stopProgressAnimation()
 
-      const langName = response.detected_language || "English"
+      const langCode = response.detected_language || "en"
+      const langName = getLanguageName(langCode)
       setDetectedLanguage(langName)
 
       const translationModel: "google_tllm" | "nllb_200" | undefined =
@@ -98,9 +100,7 @@ export default function Home() {
         readabilityGrade: response.readability_grade,
         semanticScore: response.semantic_score,
         translationModel,
-        sourceDoc: response.sources[0]?.doc_name
-          ? `${response.sources[0].doc_name} — (Bahasa Malaysia)`
-          : undefined,
+        sourceDoc: response.sources[0]?.doc_name || undefined,
         sourcePage: response.sources[0]?.page_number
           ? `Page ${response.sources[0].page_number}`
           : undefined,

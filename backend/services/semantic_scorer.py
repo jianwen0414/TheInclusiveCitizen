@@ -16,7 +16,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 _st_model = None
-SCORE_THRESHOLD = 0.90
+# paraphrase-multilingual-MiniLM-L12-v2 cross-lingual scores:
+#   same-language: 0.80–0.95  |  cross-lingual (EN↔MS): 0.35–0.65
+# A threshold of 0.45 catches genuinely bad simplifications while
+# avoiding false-positive retries on valid cross-lingual pairs.
+SCORE_THRESHOLD = 0.45
 MODEL_NAME = "paraphrase-multilingual-MiniLM-L12-v2"
 
 

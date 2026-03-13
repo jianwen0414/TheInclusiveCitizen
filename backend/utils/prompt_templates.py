@@ -2,52 +2,69 @@
 LLM Prompt Templates
 PRD Section 6.3: LLM must only answer from retrieved context (grounded).
 PRD Constraint #1: Never answer from parametric memory.
+
+Adapted for mixed-language knowledge base (documents may be in English or BM).
+The LLM generates the answer directly in the user's target language so that
+an extra translation round-trip is avoided when possible.
 """
 
-# System prompt for BM answer generation (SEA-LION v4 / Gemini fallback)
-GROUNDED_BM_SYSTEM_PROMPT = """Anda adalah pembantu kerajaan Malaysia yang membantu rakyat memahami perkhidmatan awam.
+from utils.language_router import LANGUAGE_NAMES
 
-PERATURAN PENTING:
-1. Anda HANYA boleh menjawab berdasarkan konteks dokumen rasmi yang diberikan di bawah.
-2. JANGAN sekali-kali menjawab berdasarkan pengetahuan umum anda sendiri.
-3. Jika konteks yang diberikan tidak mengandungi maklumat yang cukup, nyatakan: "Maklumat ini tiada dalam dokumen rasmi yang dirujuk. Sila hubungi agensi berkaitan."
-4. Jawab dalam Bahasa Malaysia yang jelas dan mudah difahami.
-5. Sertakan langkah-langkah jika soalan berkaitan prosedur.
-6. Nyatakan nama dokumen sumber dalam jawapan anda.
+# ── Grounded System Prompt (bilingual-aware) ─────────────
 
-You are a Malaysian government assistant helping citizens understand public services.
+GROUNDED_SYSTEM_PROMPT = """You are a Malaysian government assistant helping citizens understand public services.
 
 CRITICAL RULES:
 1. You must ONLY answer from the official document context provided below.
 2. NEVER answer from your own parametric knowledge.
-3. If the context does not contain sufficient information, state: "This information is not found in the referenced official documents. Please contact the relevant agency."
-4. Answer in clear, easy-to-understand Bahasa Malaysia.
-5. Include step-by-step instructions if the question relates to a procedure.
-6. Reference the source document name in your answer."""
+3. If the context does not contain sufficient information, state clearly that the information is not found in the referenced documents and advise the user to contact the relevant government agency.
+4. Include step-by-step instructions if the question relates to a procedure.
+5. Reference the source document name in your answer.
+6. Answer in {answer_language}.
+7. Use simple, everyday vocabulary — aim for a Grade 5 reading level."""
 
-GROUNDED_BM_USER_TEMPLATE = """KONTEKS DOKUMEN RASMI (BAHASA MALAYSIA):
+
+def build_system_prompt(answer_language: str = "Bahasa Malaysia") -> str:
+    return GROUNDED_SYSTEM_PROMPT.format(answer_language=answer_language)
+
+
+GROUNDED_USER_TEMPLATE = """OFFICIAL DOCUMENT CONTEXT:
 {context}
 
-SOALAN PENGGUNA: {query}
+USER QUESTION: {query}
 
-Berdasarkan konteks dokumen rasmi di atas SAHAJA, jawab soalan pengguna dalam Bahasa Malaysia."""
+Based ONLY on the official document context above, answer the user's question in {answer_language}. If the context is insufficient, say so."""
 
 
-# Prompt for step extraction (procedural queries)
+def build_user_prompt(context: str, query: str, answer_language: str = "Bahasa Malaysia") -> str:
+    return GROUNDED_USER_TEMPLATE.format(
+        context=context, query=query, answer_language=answer_language,
+    )
+
+
+# Legacy aliases kept for backward compat (used by dialect prompts)
+GROUNDED_BM_SYSTEM_PROMPT = build_system_prompt("Bahasa Malaysia")
+GROUNDED_BM_USER_TEMPLATE = """OFFICIAL DOCUMENT CONTEXT:
+{context}
+
+USER QUESTION: {query}
+
+Based ONLY on the official document context above, answer the user's question in Bahasa Malaysia."""
+
+
 STEP_EXTRACTION_PROMPT = """Given the following answer about a government procedure, extract clear step-by-step instructions.
-Return ONLY a JSON array of steps (strings). Each step should be a short, clear action.
-Also return a JSON array of Lucide icon names (one per step) that best represents each action.
+
+Return ONLY valid JSON. Do not include any explanation before or after the JSON.
 
 Answer:
 {answer}
 
-Return format:
-{{"steps": ["Step 1 text", "Step 2 text", ...], "step_icons": ["IconName1", "IconName2", ...]}}
+Respond with exactly this JSON structure (nothing else):
+{{"steps": ["Step 1 text", "Step 2 text"], "step_icons": ["FileText", "Building2"]}}
 
-Use these Lucide icon names: FileText, Building2, Send, Clock, CreditCard, Users, Phone, MapPin, CheckCircle, Download, Upload, Calendar, Shield, Heart, Briefcase, Home"""
+Use icon names from: FileText, Building2, Send, Clock, CreditCard, Users, Phone, MapPin, CheckCircle, Download, Upload, Calendar, Shield, Heart, Briefcase, Home"""
 
 
-# Conservative simplification prompt (used when semantic score < 0.90)
 CONSERVATIVE_SIMPLIFY_PROMPT = """Rewrite the following text in simpler language suitable for a Grade 5 reading level.
 CRITICAL: You must preserve ALL legal meanings, numbers, dates, eligibility criteria, and proper nouns EXACTLY.
 Only simplify sentence structure and replace difficult vocabulary. Do not remove any information.
@@ -60,7 +77,6 @@ Text to simplify:
 Simplified text:"""
 
 
-# Standard simplification prompt
 STANDARD_SIMPLIFY_PROMPT = """Rewrite the following text in very simple, plain language suitable for a Grade 5 reading level.
 Rules:
 - Replace jargon and complex terms with everyday words
@@ -75,16 +91,14 @@ Original text:
 Plain language version:"""
 
 
-# Dialect-specific prompt adjustments
 DIALECT_PROMPTS = {
-    "ms": GROUNDED_BM_SYSTEM_PROMPT,
-    "ms-kelantanese": GROUNDED_BM_SYSTEM_PROMPT + "\n\nNote: User speaks Kelantanese dialect. Answer in standard BM but use simple vocabulary.",
-    "ms-kedah": GROUNDED_BM_SYSTEM_PROMPT + "\n\nNote: User speaks Kedah dialect. Answer in standard BM but use simple vocabulary.",
-    "ms-sabah": GROUNDED_BM_SYSTEM_PROMPT + "\n\nNote: User speaks Sabah Malay. Answer in standard BM but use simple vocabulary.",
-    "ms-sarawak": GROUNDED_BM_SYSTEM_PROMPT + "\n\nNote: User speaks Sarawak Malay. Answer in standard BM but use simple vocabulary.",
+    "ms": build_system_prompt("Bahasa Malaysia"),
+    "ms-kelantanese": build_system_prompt("Bahasa Malaysia") + "\n\nNote: User speaks Kelantanese dialect. Answer in standard BM but use simple vocabulary.",
+    "ms-kedah": build_system_prompt("Bahasa Malaysia") + "\n\nNote: User speaks Kedah dialect. Answer in standard BM but use simple vocabulary.",
+    "ms-sabah": build_system_prompt("Bahasa Malaysia") + "\n\nNote: User speaks Sabah Malay. Answer in standard BM but use simple vocabulary.",
+    "ms-sarawak": build_system_prompt("Bahasa Malaysia") + "\n\nNote: User speaks Sarawak Malay. Answer in standard BM but use simple vocabulary.",
 }
 
 
-# Hijri calendar context template (Phase 16)
 HIJRI_CONTEXT_TEMPLATE = """Tarikh akhir: {gregorian_date}
 Tarikh Hijri bersamaan: {hijri_date}"""

@@ -46,6 +46,7 @@ export function ChatPanel({
   const [isRecording, setIsRecording] = useState(false)
   const [detectedLanguage, setDetectedLanguage] = useState("English")
   const [isTranscribing, setIsTranscribing] = useState(false)
+  const [transcribeError, setTranscribeError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
@@ -73,7 +74,14 @@ export function ChatPanel({
   const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const recorder = new MediaRecorder(stream, { mimeType: "audio/webm" })
+      // Prefer webm/opus for better STT compatibility; fallback to default
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : ""
+      const options = mimeType ? { mimeType } : {}
+      const recorder = new MediaRecorder(stream, options)
       audioChunksRef.current = []
 
       recorder.ondataavailable = (e) => {
@@ -82,33 +90,59 @@ export function ChatPanel({
 
       recorder.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop())
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" })
+        const audioBlob = new Blob(audioChunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        })
+
+        const minSize = 2000 // ~0.5s of audio at typical bitrate
+        if (audioBlob.size < minSize) {
+          setInputValue("")
+          setDetectedLanguage("English")
+          return
+        }
 
         setIsTranscribing(true)
         try {
           const result = await transcribeAudio(audioBlob)
-          setInputValue(result.text)
-          setDetectedLanguage(result.detected_language)
-          voiceLangRef.current = result.detected_language
+          const text = (result.text || "").trim()
+          if (text) {
+            setInputValue(text)
+            const lang = result.detected_language || "en"
+            setDetectedLanguage(lang)
+            voiceLangRef.current = lang
+          } else {
+            setInputValue("")
+          }
         } catch (err) {
           console.error("Transcription failed:", err)
+          setInputValue("")
+          setTranscribeError("Transcription failed. Please try again.")
+          setTimeout(() => setTranscribeError(null), 5000)
         } finally {
           setIsTranscribing(false)
         }
       }
 
       mediaRecorderRef.current = recorder
-      recorder.start()
+      recorder.start(100) // request data every 100ms so we have chunks on stop
       setIsRecording(true)
     } catch (err) {
       console.error("Microphone access denied:", err)
+      setIsRecording(false)
     }
   }, [])
 
   const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-      mediaRecorderRef.current.stop()
-      setIsRecording(false)
+    // Always exit recording state so the UI never gets stuck
+    setIsRecording(false)
+    const recorder = mediaRecorderRef.current
+    if (recorder && (recorder.state === "recording" || recorder.state === "inactive")) {
+      try {
+        if (recorder.state === "recording") recorder.stop()
+      } catch (_) {
+        // ignore
+      }
+      mediaRecorderRef.current = null
     }
   }, [])
 
@@ -124,6 +158,9 @@ export function ChatPanel({
   if (isWelcomeMode) {
     return (
       <div className="w-full">
+        {transcribeError && (
+          <p className="text-sm text-red-600 dark:text-red-400 mb-2 px-1">{transcribeError}</p>
+        )}
         <WaveformVisualizer isRecording={isRecording} />
         <AIChatInput
           inputValue={inputValue}
@@ -131,6 +168,7 @@ export function ChatPanel({
           onSend={handleSend}
           onKeyDown={handleKeyDown}
           isRecording={isRecording}
+          isTranscribing={isTranscribing}
           onToggleVoice={toggleRecording}
           detectedLanguage={detectedLanguage}
           persona={persona}
@@ -191,6 +229,9 @@ export function ChatPanel({
       {/* Input bar */}
       <div className="shrink-0 pb-6 px-4">
         <div className="max-w-3xl mx-auto">
+          {transcribeError && (
+            <p className="text-sm text-red-600 dark:text-red-400 mb-2 px-1">{transcribeError}</p>
+          )}
           <WaveformVisualizer isRecording={isRecording} />
           <AIChatInput
             inputValue={inputValue}
@@ -198,6 +239,7 @@ export function ChatPanel({
             onSend={handleSend}
             onKeyDown={handleKeyDown}
             isRecording={isRecording}
+            isTranscribing={isTranscribing}
             onToggleVoice={toggleRecording}
             detectedLanguage={detectedLanguage}
             persona={persona}

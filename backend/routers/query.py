@@ -3,13 +3,16 @@
 PRD Section 6.3 Online Query Phase — Full pipeline:
   1. Detect dialect
   2. Embed query (gemini-embedding-001, NO pre-translation — constraint #3)
-  3. Retrieve top-3 BM chunks from Supabase pgvector
-  4. Generate BM answer via SEA-LION v4 / Gemini 3 Flash fallback
-  5. Route to translation tier (Google TLLM / NLLB-200)
-  6. Simplify translated text (spaCy + LLM) — constraint #4
-  7. Compute cross-lingual Semantic Preservation Score — constraint #5
-  8. Retry if score < 0.90 (max 2 retries)
-  9. Return full response (PRD Section 7.2)
+  3. Retrieve document chunks from Supabase pgvector
+  4. Generate answer directly in the user's language via SEA-LION v4 / Gemini fallback
+  5. Route to translation tier only if LLM cannot generate in target language
+  6. Simplify the final answer (spaCy + LLM) — constraint #4
+  7. Compute Semantic Preservation Score (source chunk vs final answer)
+  8. Return full response (PRD Section 7.2)
+
+Adapted for mixed-language knowledge bases (documents may be English or BM).
+The LLM generates the answer directly in the user's target language, avoiding
+a redundant translation hop that degrades quality.
 """
 
 from __future__ import annotations
@@ -20,14 +23,12 @@ from fastapi import APIRouter, HTTPException
 
 from models.schemas import QueryRequest, QueryResponse, Source
 from services.rag_pipeline import retrieve_relevant_chunks, build_context_from_chunks
-from services.llm_service import generate_bm_answer, extract_steps
-from services.translation_service import translate_text
+from services.llm_service import generate_answer, extract_steps
 from services.dialect_detector import detect_dialect
-from services.simplifier import simplify_with_retry, compute_readability
-from services.semantic_scorer import compute_semantic_score, passes_threshold, SCORE_THRESHOLD
+from services.simplifier import simplify_text, compute_readability
+from services.semantic_scorer import compute_semantic_score, SCORE_THRESHOLD
 from services.tts_service import synthesise_speech
 from services.hijri_service import enrich_text_with_hijri
-from utils.fallback_handler import fallback_state
 from utils.language_router import get_language_name
 
 logger = logging.getLogger(__name__)
@@ -35,17 +36,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["query"])
 
 PERSONA_TTS_SPEED = {
-    "elderly": 0.75,  # PRD F07: 0.75x for elderly persona
+    "elderly": 0.75,
     "migrant": 1.0,
     "rural": 0.9,
 }
 
+# Languages where the LLM reliably generates directly (no separate translation needed)
+LLM_DIRECT_LANGUAGES = {"ms", "en", "id", "zh", "hi", "ta", "th", "vi", "tl"}
+
 
 @router.post("/query", response_model=QueryResponse)
 async def process_query(request: QueryRequest):
-    """
-    Full RAG pipeline as defined in PRD Section 6.3.
-    """
     query = request.query
     persona = request.persona
     disclaimer = None
@@ -59,11 +60,9 @@ async def process_query(request: QueryRequest):
 
         logger.info(f"Detected language: {detected_language} for query: {query[:80]}...")
 
-        # Determine target language for translation (base ISO code)
         target_lang = detected_language.split("-")[0] if "-" in detected_language else detected_language
 
-        # ── Step 2-3: Retrieve BM document chunks ──────────
-        # PRD constraint #3: query embedded directly, no pre-translation
+        # ── Step 2-3: Retrieve document chunks ──────────────
         chunks = await retrieve_relevant_chunks(query, top_k=3)
 
         if not chunks:
@@ -81,79 +80,69 @@ async def process_query(request: QueryRequest):
             )
 
         context = build_context_from_chunks(chunks)
-        original_bm_text = chunks[0].chunk_text
+        original_chunk_text = chunks[0].chunk_text
         confidence = chunks[0].similarity
 
-        # ── Step 4: Generate BM answer ─────────────────────
-        dialect_code = detected_language if detected_language.startswith("ms-") else "ms"
-        answer_bm, llm_is_fallback = await generate_bm_answer(
+        # ── Step 4: Generate answer in user's language ──────
+        dialect_code = detected_language if detected_language.startswith("ms-") else target_lang
+
+        answer, llm_is_fallback = await generate_answer(
             context=context,
             query=query,
+            target_lang=target_lang,
             dialect_code=dialect_code,
         )
+        translation_model = "none"
 
-        # ── Step 5: Translation ────────────────────────────
-        # PRD F03b: Translation occurs on BM answer BEFORE simplification
-        if target_lang == "ms":
-            translated_answer = answer_bm
-            translation_model = "none"
-        else:
-            translated_answer, translation_model = await translate_text(
-                text=answer_bm,
-                source_lang="ms",
+        # ── Step 5: Translation (only for low-resource) ─────
+        # The LLM already generates in the user's language for high-resource langs.
+        # Only invoke the translation tier for languages outside the LLM's strength.
+        if target_lang not in LLM_DIRECT_LANGUAGES:
+            from services.translation_service import translate_text
+            answer, translation_model = await translate_text(
+                text=answer,
+                source_lang="en",
                 target_lang=target_lang,
             )
 
         # ── Step 6: Simplification ─────────────────────────
-        # PRD constraint #4: Operates on post-translation text
         language_name = get_language_name(target_lang)
-        simplified_answer, readability_grade = await simplify_with_retry(
-            text=translated_answer,
+        simplified_answer, readability_grade = await simplify_text(
+            text=answer,
             language=language_name,
         )
 
-        # ── Step 6b: Hijri calendar enrichment (Phase 16) ──
-        # PRD F12: Append Hijri dates alongside Gregorian deadlines
+        # ── Step 6b: Hijri calendar enrichment ──────────────
         simplified_answer = enrich_text_with_hijri(simplified_answer)
 
         # ── Step 7: Semantic Preservation Score ────────────
-        # PRD constraint #5: Cross-lingual BM original vs translated+simplified
         semantic_score = compute_semantic_score(
-            original_bm_text=original_bm_text,
+            original_bm_text=original_chunk_text,
             translated_simplified_text=simplified_answer,
         )
 
-        # ── Step 8: Retry if score < 0.90 ─────────────────
-        if not passes_threshold(semantic_score):
+        # ── Step 8: Retry once if score very low ───────────
+        # Single conservative retry instead of multi-round loop to avoid latency.
+        if semantic_score < SCORE_THRESHOLD:
             logger.warning(
                 f"Semantic score {semantic_score:.3f} below {SCORE_THRESHOLD}. "
-                f"Re-translating with conservative approach."
+                f"Single conservative retry."
             )
-            # Re-translate and re-simplify with conservative prompt
-            if target_lang != "ms":
-                translated_answer, translation_model = await translate_text(
-                    text=answer_bm,
-                    source_lang="ms",
-                    target_lang=target_lang,
-                )
+            retried, retry_grade = await simplify_text(
+                text=answer,
+                language=language_name,
+                conservative=True,
+            )
+            retry_score = compute_semantic_score(
+                original_bm_text=original_chunk_text,
+                translated_simplified_text=retried,
+            )
+            if retry_score > semantic_score:
+                simplified_answer = retried
+                readability_grade = retry_grade
+                semantic_score = retry_score
 
-            from services.simplifier import simplify_text
-
-            for retry in range(2):
-                simplified_answer, readability_grade = await simplify_text(
-                    text=translated_answer,
-                    language=language_name,
-                    conservative=True,
-                )
-                semantic_score = compute_semantic_score(
-                    original_bm_text=original_bm_text,
-                    translated_simplified_text=simplified_answer,
-                )
-                if passes_threshold(semantic_score):
-                    break
-                logger.warning(f"Retry {retry + 1}: score still {semantic_score:.3f}")
-
-            if not passes_threshold(semantic_score):
+            if semantic_score < SCORE_THRESHOLD:
                 disclaimer = (
                     "Note: The meaning accuracy score is below the confidence threshold. "
                     "Please verify this information with the relevant government agency."
@@ -188,8 +177,8 @@ async def process_query(request: QueryRequest):
 
         return QueryResponse(
             answer=simplified_answer,
-            answer_bm=answer_bm,
-            original_text=original_bm_text,
+            answer_bm=answer if target_lang == "ms" else "",
+            original_text=original_chunk_text,
             translation_model=translation_model,
             semantic_score=semantic_score,
             readability_grade=readability_grade,

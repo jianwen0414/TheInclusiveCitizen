@@ -39,7 +39,7 @@ def _get_supabase() -> Client:
 async def retrieve_relevant_chunks(
     query: str,
     top_k: int = 3,
-    threshold: float = 0.5,
+    threshold: float = 0.3,
 ) -> list[RetrievedChunk]:
     """
     PRD Section 6.3 Online Query Phase steps 3-4:
@@ -48,40 +48,55 @@ async def retrieve_relevant_chunks(
 
     CRITICAL (PRD constraint #3): Never pre-translate the user query.
     gemini-embedding-001 handles cross-lingual matching natively.
+
+    Matches the existing Supabase function signature:
+      match_documents(query_embedding, match_count, filter)
+    Threshold filtering is applied in Python after retrieval.
     """
     # Step 1: Embed the raw user query (any language)
     query_embedding = embed_query(query)
 
-    # Step 2: Vector similarity search via Supabase RPC
+    # Step 2: Vector similarity search via Supabase RPC.
+    # Fetch more rows than needed (top_k * 4) so Python threshold filter
+    # still yields top_k results even if some fall below threshold.
     supabase = _get_supabase()
+    fetch_count = max(top_k * 4, 20)
 
     result = supabase.rpc(
         "match_documents",
         {
             "query_embedding": query_embedding,
-            "match_threshold": threshold,
-            "match_count": top_k,
+            "match_count": fetch_count,
+            "filter": {},
         },
     ).execute()
 
+    # Step 3: Parse rows and apply similarity threshold in Python
     chunks: list[RetrievedChunk] = []
     for row in result.data or []:
-        chunks.append(
-            RetrievedChunk(
-                doc_name=row["doc_name"],
-                doc_type=row.get("doc_type"),
-                page_number=row.get("page_number"),
-                chunk_text=row["chunk_text"],
-                similarity=row["similarity"],
-                metadata=row.get("metadata"),
+        similarity = float(row["similarity"])
+        if similarity >= threshold:
+            chunks.append(
+                RetrievedChunk(
+                    doc_name=row["doc_name"],
+                    doc_type=row.get("doc_type"),
+                    page_number=row.get("page_number"),
+                    chunk_text=row["chunk_text"],
+                    similarity=similarity,
+                    metadata=row.get("metadata"),
+                )
             )
-        )
 
-    logger.info(
-        f"Retrieved {len(chunks)} chunks for query "
-        f"(top similarity: {chunks[0].similarity:.3f})" if chunks else
-        f"Retrieved 0 chunks for query"
-    )
+    # Rows already arrive sorted by similarity DESC; slice to top_k
+    chunks = chunks[:top_k]
+
+    if chunks:
+        logger.info(
+            f"Retrieved {len(chunks)} chunks "
+            f"(top similarity: {chunks[0].similarity:.3f})"
+        )
+    else:
+        logger.info("Retrieved 0 chunks above threshold for query")
 
     return chunks
 

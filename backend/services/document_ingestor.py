@@ -16,7 +16,8 @@ import uuid
 from typing import BinaryIO
 
 import fitz  # pymupdf
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from supabase import create_client, Client
 
 logger = logging.getLogger(__name__)
@@ -24,24 +25,32 @@ logger = logging.getLogger(__name__)
 CHUNK_SIZE_TOKENS = 512
 CHUNK_OVERLAP_TOKENS = 50
 CHARS_PER_TOKEN = 4  # conservative estimate for BM/EN mixed text
-EMBEDDING_MODEL = "models/gemini-embedding-001"
+# Vertex AI expects short model name; use output_dimensionality=768 to match pgvector schema
+EMBEDDING_MODEL = "gemini-embedding-001"
 EMBEDDING_DIM = 768
+
+_genai_client: genai.Client | None = None
+
+
+def _get_genai_client() -> genai.Client:
+    """Return a google.genai Client configured for Vertex AI via ADC."""
+    global _genai_client
+    if _genai_client is None:
+        project = os.getenv("GOOGLE_CLOUD_PROJECT")
+        # Force Vertex AI (avoids 404 from wrong endpoint)
+        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
+        _genai_client = genai.Client(
+            vertexai=True,
+            project=project or "",
+            location="us-central1",
+        )
+    return _genai_client
 
 
 def _get_supabase() -> Client:
     url = os.getenv("SUPABASE_URL", "")
     key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     return create_client(url, key)
-
-
-def _init_genai() -> None:
-    """Configure google.generativeai to use Vertex AI via ADC."""
-    project = os.getenv("GOOGLE_CLOUD_PROJECT")
-    if project:
-        genai.configure(
-            client_options={"api_endpoint": f"us-central1-aiplatform.googleapis.com"},
-            default_metadata=[("x-goog-user-project", project)],
-        )
 
 
 # ── PDF Parsing ──────────────────────────────────────────
@@ -111,35 +120,38 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     PRD: gemini-embedding-001 handles cross-lingual matching natively.
     Returns list of 768-dim vectors.
     """
-    _init_genai()
-
+    client = _get_genai_client()
     embeddings: list[list[float]] = []
     batch_size = 20  # API batch limit
 
     for i in range(0, len(texts), batch_size):
         batch = texts[i : i + batch_size]
-        result = genai.embed_content(
+        result = client.models.embed_content(
             model=EMBEDDING_MODEL,
-            content=batch,
-            task_type="retrieval_document",
+            contents=batch,
+            config=types.EmbedContentConfig(
+                task_type="RETRIEVAL_DOCUMENT",
+                output_dimensionality=EMBEDDING_DIM,
+            ),
         )
-        if isinstance(result["embedding"][0], list):
-            embeddings.extend(result["embedding"])
-        else:
-            embeddings.append(result["embedding"])
+        for e in result.embeddings:
+            embeddings.append(list(e.values))
 
     return embeddings
 
 
 def embed_query(text: str) -> list[float]:
     """Embed a single query for retrieval."""
-    _init_genai()
-    result = genai.embed_content(
+    client = _get_genai_client()
+    result = client.models.embed_content(
         model=EMBEDDING_MODEL,
-        content=text,
-        task_type="retrieval_query",
+        contents=text,
+        config=types.EmbedContentConfig(
+            task_type="RETRIEVAL_QUERY",
+            output_dimensionality=EMBEDDING_DIM,
+        ),
     )
-    return result["embedding"]
+    return list(result.embeddings[0].values)
 
 
 # ── Supabase Upsert ─────────────────────────────────────

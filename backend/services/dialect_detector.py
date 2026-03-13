@@ -198,10 +198,13 @@ async def detect_dialect(text: str) -> str:
     lingua_result = _detect_with_lingua(text)
 
     if lingua_result in ("ms", "id"):
-        # Check for Malay dialect
+        # Malay and Indonesian are mutually intelligible — lingua-py
+        # cannot reliably distinguish them.  Since this is a Malaysian
+        # government assistant, any ms/id ambiguity resolves to "ms".
         dialect = _detect_malay_dialect(text)
         if dialect:
             return dialect
+        return "ms"
 
     if lingua_result:
         return lingua_result
@@ -213,6 +216,7 @@ async def detect_dialect(text: str) -> str:
             dialect = _detect_malay_dialect(text)
             if dialect:
                 return dialect
+            return "ms"
         return langdetect_result
 
-    return "en"  # default to English
+    return "en"

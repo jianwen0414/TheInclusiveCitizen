@@ -10,9 +10,8 @@ PRD Constraint #4: Simplification always operates on POST-TRANSLATION text.
 from __future__ import annotations
 
 import logging
-import os
 
-import google.generativeai as genai
+from google.genai import types
 import textstat
 
 from utils.prompt_templates import STANDARD_SIMPLIFY_PROMPT, CONSERVATIVE_SIMPLIFY_PROMPT
@@ -80,22 +79,18 @@ async def simplify_text(
     prompt = prompt_template.format(text=text, language=language)
 
     try:
-        project = os.getenv("GOOGLE_CLOUD_PROJECT")
-        genai.configure(
-            client_options={"api_endpoint": "us-central1-aiplatform.googleapis.com"},
-            default_metadata=[("x-goog-user-project", project)] if project else [],
-        )
+        from services.llm_service import _get_gemini_client, _generate_with_fallback_model
 
-        model = genai.GenerativeModel("gemini-3-flash-preview")
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
+        client = _get_gemini_client()
+        simplified = await _generate_with_fallback_model(
+            client,
+            contents=prompt,
+            config=types.GenerateContentConfig(
                 temperature=0.2,
-                max_output_tokens=1024,
+                max_output_tokens=2048,
             ),
         )
-
-        simplified = response.text.strip()
+        simplified = simplified.strip()
         grade = compute_readability(simplified)
 
         logger.info(f"Simplification: {current_grade:.1f} → {grade:.1f} grade level")

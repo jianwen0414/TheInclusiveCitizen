@@ -79,7 +79,7 @@ LANGUAGE_NAMES = {
 # Google Cloud TTS voice mapping (PRD F07)
 TTS_VOICE_MAP = {
     "ms": "ms-MY",
-    "en": "en-MY",
+    "en": "en-US",   # Google TTS has no en-MY locale; en-US is the correct code
     "id": "id-ID",
     "th": "th-TH",
     "tl": "fil-PH",
@@ -118,7 +118,7 @@ def get_nllb_code(lang_code: str) -> str:
 def get_tts_locale(lang_code: str) -> str:
     """Map language code to Google Cloud TTS locale."""
     base = lang_code.split("-")[0] if "-" in lang_code else lang_code
-    return TTS_VOICE_MAP.get(base, "en-MY")
+    return TTS_VOICE_MAP.get(base, "en-US")
 
 
 def get_language_name(lang_code: str) -> str:

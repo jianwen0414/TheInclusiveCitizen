@@ -2,6 +2,30 @@
 
 import { useState, useEffect, useRef } from "react"
 import { Volume2, Loader2, FileText, Share2, BookOpen } from "lucide-react"
+
+const LANGUAGE_NAMES: Record<string, string> = {
+  ms: "Bahasa Malaysia",
+  id: "Bahasa Indonesia",
+  en: "English",
+  zh: "Chinese",
+  ta: "Tamil",
+  hi: "Hindi",
+  th: "Thai",
+  vi: "Vietnamese",
+  tl: "Filipino",
+  bn: "Bengali",
+  ja: "Japanese",
+  ko: "Korean",
+  iba: "Iban",
+  dtp: "Kadazan-Dusun",
+  bdr: "Bajau",
+}
+
+export function getLanguageName(code: string): string {
+  if (!code) return "English"
+  const base = code.split("-")[0]
+  return LANGUAGE_NAMES[base] || code
+}
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { StepCards } from "./StepCards"
@@ -102,17 +126,17 @@ export function MessageBubble({ message, onViewSource, onShare }: MessageBubbleP
           {message.detectedLanguage && (
             <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex px-3 py-1 rounded-full text-sm font-medium bg-blue-tint text-primary">
-                {message.detectedLanguage} → Plain {message.detectedLanguage}
+                {getLanguageName(message.detectedLanguage)} · Simplified
               </span>
             </div>
           )}
 
           {/* Readability badge */}
-          {message.readabilityGrade && (
+          {message.readabilityGrade !== undefined && message.readabilityGrade > 0 && (
             <div className="flex items-center gap-2">
               <BookOpen className="w-4 h-4 text-text-secondary" />
               <span className="text-sm text-text-secondary">
-                Reading Level: Grade {message.readabilityGrade}
+                Reading Level: Grade {message.readabilityGrade.toFixed(1)}
               </span>
             </div>
           )}

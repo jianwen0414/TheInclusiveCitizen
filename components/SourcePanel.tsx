@@ -2,7 +2,7 @@
 
 import { X, FileText, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Message } from "./MessageBubble"
+import { Message, getLanguageName } from "./MessageBubble"
 
 interface SourcePanelProps {
   message: Message | null
@@ -37,7 +37,9 @@ export function SourcePanel({ message, onClose }: SourcePanelProps) {
         <div className="flex flex-col gap-4">
           {/* Language note */}
           <p className="text-sm text-text-secondary leading-relaxed">
-            This answer was translated from the official Bahasa Malaysia government document below.
+            {message.translationModel
+              ? `This answer was translated from the official government document below.`
+              : `This answer was generated from the official government document below.`}
           </p>
 
           {/* Source document card */}
@@ -55,17 +57,19 @@ export function SourcePanel({ message, onClose }: SourcePanelProps) {
             {/* What this says */}
             <div className="flex flex-col gap-2">
               <span className="text-[11px] font-medium text-text-secondary uppercase tracking-wider">
-                In plain {message.detectedLanguage}:
+                {message.detectedLanguage
+                  ? `In plain ${getLanguageName(message.detectedLanguage)}:`
+                  : "Simplified answer:"}
               </span>
               <p className="text-sm text-text-primary leading-relaxed">
                 {message.content}
               </p>
             </div>
 
-            {/* Original BM excerpt */}
+            {/* Source excerpt */}
             <div className="flex flex-col gap-2">
               <span className="text-[11px] font-medium text-text-secondary uppercase tracking-wider">
-                Original (Bahasa Malaysia):
+                From source document:
               </span>
               <blockquote className="pl-3 border-l-[3px] border-primary bg-sidebar-bg p-3 rounded-r-lg">
                 <p className="text-sm text-text-primary italic leading-relaxed">
