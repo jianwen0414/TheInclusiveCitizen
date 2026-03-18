@@ -200,8 +200,12 @@ const AIChatInput = ({
           </AnimatePresence>
         </div>
 
-        {/* Bottom toolbar row */}
-        <div className="flex items-center justify-between px-4 pb-3">
+        {/* Bottom toolbar row — prevent wrapper onClick from firing when toolbar is used */}
+        <div
+          className="flex items-center justify-between px-4 pb-3"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
           <div className="flex items-center gap-2">
             {/* Plus button */}
             <button
@@ -232,24 +236,32 @@ const AIChatInput = ({
             </motion.button>
           </div>
 
-          {/* Mic / Stop button */}
+          {/* Mic / Stop button — overlay must not capture pointer so button receives events */}
           <div className="relative flex items-center gap-2">
             {isRecording && (
-              <span className="absolute inset-0 rounded-full bg-teal/40 animate-pulse-ring" />
+              <span
+                className="absolute inset-0 rounded-full bg-teal/40 animate-pulse-ring pointer-events-none"
+                aria-hidden
+              />
             )}
             <button
+              type="button"
               className={cn(
-                "flex items-center justify-center gap-1.5 min-w-[2.25rem] h-9 rounded-full transition-all",
+                "relative z-10 flex items-center justify-center gap-1.5 min-w-[2.25rem] h-9 rounded-full transition-all",
                 isRecording
                   ? "bg-teal text-white px-3"
                   : "text-text-secondary hover:bg-border-subtle w-9"
               )}
               title={isRecording ? "Stop recording" : "Voice input"}
-              type="button"
-              onClick={(e) => {
+              aria-label={isRecording ? "Stop recording" : "Start voice input"}
+              onPointerDown={(e) => {
                 e.stopPropagation()
                 e.preventDefault()
                 onToggleVoice()
+              }}
+              onClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
               }}
             >
               {isRecording ? (

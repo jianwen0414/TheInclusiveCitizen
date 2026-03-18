@@ -44,6 +44,7 @@ export function ChatPanel({
 }: ChatPanelProps) {
   const [inputValue, setInputValue] = useState("")
   const [isRecording, setIsRecording] = useState(false)
+  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null)
   const [detectedLanguage, setDetectedLanguage] = useState("English")
   const [isTranscribing, setIsTranscribing] = useState(false)
   const [transcribeError, setTranscribeError] = useState<string | null>(null)
@@ -125,6 +126,7 @@ export function ChatPanel({
 
       mediaRecorderRef.current = recorder
       recorder.start(100) // request data every 100ms so we have chunks on stop
+      setMediaStream(stream)
       setIsRecording(true)
     } catch (err) {
       console.error("Microphone access denied:", err)
@@ -133,16 +135,19 @@ export function ChatPanel({
   }, [])
 
   const stopRecording = useCallback(() => {
-    // Always exit recording state so the UI never gets stuck
-    setIsRecording(false)
     const recorder = mediaRecorderRef.current
-    if (recorder && (recorder.state === "recording" || recorder.state === "inactive")) {
-      try {
-        if (recorder.state === "recording") recorder.stop()
-      } catch (_) {
-        // ignore
+    mediaRecorderRef.current = null
+    setMediaStream(null)
+    // Always exit recording state first so UI updates immediately
+    setIsRecording(false)
+    if (!recorder) return
+    try {
+      if (recorder.state === "recording") {
+        recorder.requestData?.() // request any buffered data before stop (optional)
+        recorder.stop()
       }
-      mediaRecorderRef.current = null
+    } catch (_) {
+      // ignore
     }
   }, [])
 
@@ -161,7 +166,7 @@ export function ChatPanel({
         {transcribeError && (
           <p className="text-sm text-red-600 dark:text-red-400 mb-2 px-1">{transcribeError}</p>
         )}
-        <WaveformVisualizer isRecording={isRecording} />
+        <WaveformVisualizer isRecording={isRecording} mediaStream={mediaStream} />
         <AIChatInput
           inputValue={inputValue}
           onInputChange={setInputValue}
@@ -232,7 +237,7 @@ export function ChatPanel({
           {transcribeError && (
             <p className="text-sm text-red-600 dark:text-red-400 mb-2 px-1">{transcribeError}</p>
           )}
-          <WaveformVisualizer isRecording={isRecording} />
+          <WaveformVisualizer isRecording={isRecording} mediaStream={mediaStream} />
           <AIChatInput
             inputValue={inputValue}
             onInputChange={setInputValue}
