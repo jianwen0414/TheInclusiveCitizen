@@ -1,6 +1,7 @@
 "use client"
 
 import { X, FileText, ExternalLink } from "lucide-react"
+import ReactMarkdown from "react-markdown"
 import { Button } from "@/components/ui/button"
 import { Message, getLanguageName } from "./MessageBubble"
 
@@ -61,9 +62,11 @@ export function SourcePanel({ message, onClose }: SourcePanelProps) {
                   ? `In plain ${getLanguageName(message.detectedLanguage)}:`
                   : "Simplified answer:"}
               </span>
-              <p className="text-sm text-text-primary leading-relaxed">
-                {message.content}
-              </p>
+              <div className="text-sm text-text-primary leading-relaxed prose prose-sm max-w-none
+                prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5
+                prose-strong:text-text-primary">
+                <ReactMarkdown>{message.content}</ReactMarkdown>
+              </div>
             </div>
 
             {/* Source excerpt */}

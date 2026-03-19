@@ -29,3 +29,9 @@ yarn-error.log*
 next-env.d.ts
 
 __pycache__/
+
+# E2E demo: generated WAV for Chromium fake microphone
+/scripts/demo-cache/
+
+# E2E attach: isolated Chrome profile (CDP + fake mic demo)
+/scripts/chrome-cdp-profile/

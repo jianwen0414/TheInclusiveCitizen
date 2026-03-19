@@ -19,8 +19,32 @@ _lingua_detector = None
 # ── Malay Dialect Markers ────────────────────────────────
 
 KELANTANESE_MARKERS = [
+    # Classic Kelantanese vocabulary (appear in raw dialect text)
     "ambo", "demo", "gapo", "dok", "nok", "kito", "sapa", "guano",
     "maghi", "make", "ttido", "oghe", "nate", "tubik", "gak",
+    # Words that frequently survive chirp_3 STT normalization because
+    # chirp_3 may transcribe them phonetically rather than normalising:
+    "loni",      # Kelantanese: "sekarang" (now)
+    "pom",       # Kelantanese: "pun" (also/too) — transcribed phonetically
+    "bukey",     # Kelantanese: "bukan" — sometimes preserved
+    "buleh",     # Kelantanese: "boleh" — phonetic variant
+    "takdok",    # Kelantanese: "tiada/tak ada"
+    "doh",       # Kelantanese: "dah/sudah" — sometimes preserved
+    "ado",       # Kelantanese: "ada" — sometimes preserved
+    "kijo",      # Kelantanese: "kerja"
+    "nyo",       # Kelantanese: "nya/dia"
+    "tahu dok",  # Kelantanese: "tahu tak"
+    "sokmo",     # Kelantanese: "selalu" (always)
+    "peghak",    # Kelantanese: "perak" (silver/state)
+    "royak",     # Kelantanese: "cakap/bagitahu" (tell)
+    "pehe",      # Kelantanese: "faham" (understand)
+    "terer",     # Kelantanese: "pandai" (clever)
+    # Typed Kelantanese orthography (often not normalised by STT)
+    "layok",     # layak
+    "dapak",     # dapat
+    "puloh",     # puluh
+    "tahon",     # tahun
+    "umor",      # umur
 ]
 
 KEDAH_MARKERS = [
@@ -44,8 +68,13 @@ MANGLISH_MARKERS = [
 ]
 
 
-def _detect_malay_dialect(text: str) -> str | None:
-    """Classify Malay dialect based on lexical markers."""
+def detect_malay_dialect(text: str) -> str | None:
+    """
+    Classify Malay dialect based on lexical markers.
+    Public API — called both from within this module and from query.py
+    when the STT has already identified the language as 'ms' but the
+    text may still contain surviving dialect cues.
+    """
     text_lower = text.lower()
     words = set(re.findall(r"\b\w+\b", text_lower))
 
@@ -58,9 +87,23 @@ def _detect_malay_dialect(text: str) -> str | None:
     }
 
     best_dialect = max(scores, key=scores.get)  # type: ignore
-    if scores[best_dialect] >= 2:
+    # Threshold: ≥2 hits for marker-dense raw dialect text; ≥1 hit is
+    # sufficient for the post-STT survival markers which are individually
+    # diagnostic (e.g. "loni", "pom", "takdok").
+    POST_STT_SURVIVAL_MARKERS = {
+        "loni", "pom", "bukey", "buleh", "takdok", "doh", "ado",
+        "kijo", "nyo", "sokmo", "royak", "pehe",
+        "layok", "dapak", "puloh", "tahon", "umor",
+    }
+    has_survival_marker = any(m in words for m in POST_STT_SURVIVAL_MARKERS)
+    threshold = 1 if has_survival_marker else 2
+    if scores[best_dialect] >= threshold:
         return best_dialect
     return None
+
+
+# Keep private alias for backward compatibility within module
+_detect_malay_dialect = detect_malay_dialect
 
 
 # ── lingua-py (Primary) ─────────────────────────────────
@@ -159,6 +202,37 @@ def _detect_with_langdetect(text: str) -> str | None:
 
 # ── Script-Based Detection (fast pre-filter) ────────────
 
+def _has_malay_content_cues(text: str) -> bool:
+    """
+    Pan-Malay lexical cues that rarely co-occur in genuine Tagalog/Filipino.
+    Used when lingua-py mislabels short colloquial Malay as TAGALOG (tl).
+
+    Lingua's docs note strong accuracy on short text overall, but Austronesian
+    languages share vocabulary; very short Kelantanese-style sentences can
+    still be misclassified — see lingua-py README / accuracy tables on GitHub.
+    """
+    t = text.lower()
+    # Multi-word phrases (high precision for Malaysian context)
+    phrase_hits = sum(
+        1
+        for p in (
+            "mak cik", "pak cik", "datuk", "datuk seri", "encik", "puan",
+            "ringgit", "mykad", "kwsp", "lhdn", "jtk", "bsh", "str",
+            "kerajaan malaysia", "kementerian",
+        )
+        if p in t
+    )
+    if phrase_hits >= 1:
+        return True
+    words = set(re.findall(r"\b\w+\b", t))
+    # Single tokens common in Malaysian colloquial BM, uncommon in Tagalog
+    token_hits = words & {
+        "nak", "cik", "duit", "kerja", "kijo", "tetap", "puloh", "tahon",
+        "umor", "layok", "dapak", "dok", "nok", "ambo",
+    }
+    return len(token_hits) >= 3
+
+
 def _detect_by_script(text: str) -> str | None:
     """Quick script-based detection for non-Latin languages."""
     if re.search(r"[\u0E00-\u0E7F]", text):
@@ -205,6 +279,25 @@ async def detect_dialect(text: str) -> str:
         if dialect:
             return dialect
         return "ms"
+
+    # Colloquial Malaysian Malay (especially dialect spellings) is sometimes
+    # misclassified as TAGALOG because both are Austronesian. If the text
+    # clearly carries Malay dialect markers OR strong Malaysian BM cues,
+    # override lingua and route through the Malay dialect path.
+    if lingua_result and lingua_result not in ("ms", "id"):
+        dialect = _detect_malay_dialect(text)
+        if dialect:
+            logger.debug(
+                "Overriding lingua=%s → %s (dialect markers in text)",
+                lingua_result,
+                dialect,
+            )
+            return dialect
+        if lingua_result == "tl" and _has_malay_content_cues(text):
+            logger.debug(
+                "Overriding lingua=tl → ms (Malay content cues; likely false Tagalog)"
+            )
+            return "ms"
 
     if lingua_result:
         return lingua_result

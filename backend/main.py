@@ -4,6 +4,7 @@ PRD Section 6.1: Three-tier architecture (presentation → intelligence → data
 PRD Section 7.1: All API endpoint registrations
 """
 
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -11,6 +12,28 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
+
+# Ensure our application loggers emit INFO regardless of uvicorn's root
+# logger configuration. basicConfig is a no-op if uvicorn added handlers
+# first, so we forcibly set levels on each module logger.
+_APP_LOGGERS = [
+    "routers.query",
+    "services.rag_pipeline",
+    "services.llm_service",
+    "services.simplifier",
+    "services.semantic_scorer",
+    "services.translation_service",
+    "services.stt_service",
+    "services.tts_service",
+]
+for _name in _APP_LOGGERS:
+    logging.getLogger(_name).setLevel(logging.INFO)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 app = FastAPI(
     title="The Inclusive Citizen API",
@@ -43,6 +66,28 @@ app.include_router(query_router)
 app.include_router(translate_router)
 app.include_router(transcribe_router)
 app.include_router(synthesise_router)
+
+_startup_logger = logging.getLogger("startup")
+
+
+@app.on_event("startup")
+async def _warm_up_models():
+    """
+    Eagerly load slow models so the first real query isn't penalised.
+    Runs in the background so the server accepts requests immediately.
+    """
+    import asyncio
+
+    async def _load():
+        try:
+            _startup_logger.info("Warming up sentence-transformers model…")
+            from services.semantic_scorer import _load_model
+            _load_model()
+            _startup_logger.info("sentence-transformers model ready.")
+        except Exception as exc:
+            _startup_logger.warning(f"Model warm-up failed (non-fatal): {exc}")
+
+    asyncio.create_task(_load())
 
 
 if __name__ == "__main__":

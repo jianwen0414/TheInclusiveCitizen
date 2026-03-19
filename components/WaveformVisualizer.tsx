@@ -74,7 +74,11 @@ export function WaveformVisualizer({ isRecording, mediaStream }: WaveformVisuali
   if (!isRecording) return null
 
   return (
-    <div className="flex items-center justify-center gap-1 h-8 px-4" aria-hidden>
+    <div
+      data-testid="voice-waveform"
+      className="flex items-center justify-center gap-1 h-8 px-4"
+      aria-hidden
+    >
       {Array.from({ length: BAR_COUNT }).map((_, i) => (
         <div
           key={i}

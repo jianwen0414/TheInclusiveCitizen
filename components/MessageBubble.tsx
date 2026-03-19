@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { Volume2, Loader2, FileText, Share2, BookOpen } from "lucide-react"
+import ReactMarkdown from "react-markdown"
 
 const LANGUAGE_NAMES: Record<string, string> = {
   ms: "Bahasa Malaysia",
@@ -117,10 +118,12 @@ export function MessageBubble({ message, onViewSource, onShare }: MessageBubbleP
     <div className="flex flex-col gap-3">
       <div className="max-w-[90%] bg-surface rounded-2xl shadow-elevation-1 overflow-hidden">
         <div className="p-5 flex flex-col gap-4">
-          {/* Main answer */}
-          <p className="text-base text-text-primary leading-relaxed">
-            {message.content}
-          </p>
+          {/* Main answer — render markdown so **bold** and * bullets display properly */}
+          <div className="text-base text-text-primary leading-relaxed prose prose-sm max-w-none
+            prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5
+            prose-strong:text-text-primary prose-headings:text-text-primary">
+            <ReactMarkdown>{message.content}</ReactMarkdown>
+          </div>
 
           {/* Language tag pill */}
           {message.detectedLanguage && (

@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 
 from utils.language_router import get_tts_locale
 
@@ -56,6 +57,55 @@ TTS_STANDARD_FALLBACK = {
 }
 
 
+_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_MD_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+_MD_CODE_BLOCK_RE = re.compile(r"```[\s\S]*?```", re.MULTILINE)
+_MD_INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+_MD_BOLD_ITALIC_RE = re.compile(r"(\*\*\*|___)(.+?)\1")
+_MD_BOLD_RE = re.compile(r"(\*\*|__)(.+?)\1")
+_MD_ITALIC_RE = re.compile(r"(\*|_)([^*_]+?)\1")
+_MD_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+", re.MULTILINE)
+_MD_BLOCKQUOTE_RE = re.compile(r"^\s{0,3}>\s?", re.MULTILINE)
+_MD_LIST_BULLET_RE = re.compile(r"^\s*[-*+]\s+", re.MULTILINE)
+_MD_LIST_NUMBER_RE = re.compile(r"^\s*\d+\.\s+", re.MULTILINE)
+
+
+def sanitize_tts_text(text: str) -> str:
+    """
+    Convert Markdown-ish formatted text into plain speakable text.
+    Keeps the visible words (e.g. **bold** -> bold) and strips markup so
+    TTS doesn't read punctuation like asterisks.
+    """
+    if not text:
+        return ""
+
+    s = str(text)
+    s = _MD_CODE_BLOCK_RE.sub(" ", s)
+    s = _MD_IMAGE_RE.sub(r"\1", s)  # keep alt text
+    s = _MD_LINK_RE.sub(r"\1", s)  # keep link text only
+    s = _MD_INLINE_CODE_RE.sub(r"\1", s)
+
+    # Emphasis markers
+    s = _MD_BOLD_ITALIC_RE.sub(r"\2", s)
+    s = _MD_BOLD_RE.sub(r"\2", s)
+    s = _MD_ITALIC_RE.sub(r"\2", s)
+
+    # Common line prefixes
+    s = _MD_HEADING_RE.sub("", s)
+    s = _MD_BLOCKQUOTE_RE.sub("", s)
+    s = _MD_LIST_BULLET_RE.sub("", s)
+    s = _MD_LIST_NUMBER_RE.sub("", s)
+
+    # Remove any remaining stray emphasis characters that would be read aloud
+    s = s.replace("*", "").replace("_", "")
+
+    # Normalize whitespace
+    s = re.sub(r"[ \t]+\n", "\n", s)
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    s = re.sub(r"[ \t]{2,}", " ", s)
+    return s.strip()
+
+
 async def synthesise_speech(
     text: str,
     language: str = "en",
@@ -71,7 +121,9 @@ async def synthesise_speech(
     client = texttospeech.TextToSpeechClient()
     locale = get_tts_locale(language)
 
-    synthesis_input = texttospeech.SynthesisInput(text=text[:4500])  # API limit ~5000 bytes
+    cleaned = sanitize_tts_text(text)
+    # API limit ~5000 bytes; keep a conservative margin.
+    synthesis_input = texttospeech.SynthesisInput(text=(cleaned or text)[:4500])
     audio_config = texttospeech.AudioConfig(
         audio_encoding=texttospeech.AudioEncoding.MP3,
         speaking_rate=speed,

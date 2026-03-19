@@ -17,14 +17,16 @@ a redundant translation hop that degrades quality.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 
 from fastapi import APIRouter, HTTPException
 
 from models.schemas import QueryRequest, QueryResponse, Source
 from services.rag_pipeline import retrieve_relevant_chunks, build_context_from_chunks
 from services.llm_service import generate_answer, extract_steps
-from services.dialect_detector import detect_dialect
+from services.dialect_detector import detect_dialect, detect_malay_dialect
 from services.simplifier import simplify_text, compute_readability
 from services.semantic_scorer import compute_semantic_score, SCORE_THRESHOLD
 from services.tts_service import synthesise_speech
@@ -50,20 +52,40 @@ async def process_query(request: QueryRequest):
     query = request.query
     persona = request.persona
     disclaimer = None
+    t_start = time.perf_counter()
+
+    def _elapsed(since: float) -> str:
+        return f"{(time.perf_counter() - since) * 1000:.0f}ms"
 
     try:
         # ── Step 1: Detect dialect ──────────────────────────
+        # STT already provides the language family ("ms", "en", …) so we
+        # skip the full lingua-py pipeline to save latency.  However, STT
+        # normalises dialectal pronunciation to standard BM text, so we
+        # always run the fast text-based sub-dialect check on the query
+        # text regardless — some Kelantanese/Kedah words survive chirp_3
+        # normalisation and allow us to route to the correct dialect prompt.
+        t0 = time.perf_counter()
         if request.language:
             detected_language = request.language
+            # For Malay, always attempt sub-dialect refinement from text
+            # even though the STT already identified the language family.
+            if detected_language in ("ms", "id"):
+                sub_dialect = detect_malay_dialect(query)
+                if sub_dialect:
+                    detected_language = sub_dialect
         else:
             detected_language = await detect_dialect(query)
+        logger.info(f"[TIMING] dialect_detect={_elapsed(t0)}")
 
         logger.info(f"Detected language: {detected_language} for query: {query[:80]}...")
 
         target_lang = detected_language.split("-")[0] if "-" in detected_language else detected_language
 
         # ── Step 2-3: Retrieve document chunks ──────────────
-        chunks = await retrieve_relevant_chunks(query, top_k=3)
+        t0 = time.perf_counter()
+        chunks = await retrieve_relevant_chunks(query, top_k=6)
+        logger.info(f"[TIMING] rag_retrieval={_elapsed(t0)}")
 
         if not chunks:
             return QueryResponse(
@@ -84,6 +106,7 @@ async def process_query(request: QueryRequest):
         confidence = chunks[0].similarity
 
         # ── Step 4: Generate answer in user's language ──────
+        t0 = time.perf_counter()
         dialect_code = detected_language if detected_language.startswith("ms-") else target_lang
 
         answer, llm_is_fallback = await generate_answer(
@@ -92,6 +115,7 @@ async def process_query(request: QueryRequest):
             target_lang=target_lang,
             dialect_code=dialect_code,
         )
+        logger.info(f"[TIMING] llm_generate={_elapsed(t0)} (fallback={llm_is_fallback})")
         translation_model = "none"
 
         # ── Step 5: Translation (only for low-resource) ─────
@@ -106,20 +130,25 @@ async def process_query(request: QueryRequest):
             )
 
         # ── Step 6: Simplification ─────────────────────────
+        t0 = time.perf_counter()
         language_name = get_language_name(target_lang)
         simplified_answer, readability_grade = await simplify_text(
             text=answer,
             language=language_name,
         )
+        logger.info(f"[TIMING] simplify={_elapsed(t0)}")
 
         # ── Step 6b: Hijri calendar enrichment ──────────────
         simplified_answer = enrich_text_with_hijri(simplified_answer)
 
         # ── Step 7: Semantic Preservation Score ────────────
+        t0 = time.perf_counter()
         semantic_score = compute_semantic_score(
             original_bm_text=original_chunk_text,
             translated_simplified_text=simplified_answer,
         )
+
+        logger.info(f"[TIMING] semantic_score={_elapsed(t0)} score={semantic_score:.3f}")
 
         # ── Step 8: Retry once if score very low ───────────
         # Single conservative retry instead of multi-round loop to avoid latency.
@@ -148,23 +177,35 @@ async def process_query(request: QueryRequest):
                     "Please verify this information with the relevant government agency."
                 )
 
-        # ── Step 9: Extract steps (if procedural) ─────────
-        steps, step_icons = await extract_steps(simplified_answer)
-
-        # ── Step 10: TTS ───────────────────────────────────
+        # ── Steps 9 + 10: Extract steps and TTS in parallel ─
+        # Both depend on simplified_answer but not on each other.
+        t0 = time.perf_counter()
         tts_speed = PERSONA_TTS_SPEED.get(persona, 1.0)
-        try:
-            audio_b64, _ = await synthesise_speech(
-                text=simplified_answer,
-                language=target_lang,
-                speed=tts_speed,
-            )
-            audio_url = f"data:audio/mp3;base64,{audio_b64}"
-        except Exception as exc:
-            logger.warning(f"TTS failed: {exc}")
-            audio_url = None
+
+        async def _run_steps():
+            return await extract_steps(simplified_answer)
+
+        async def _run_tts():
+            try:
+                b64, _ = await synthesise_speech(
+                    text=simplified_answer,
+                    language=target_lang,
+                    speed=tts_speed,
+                )
+                return f"data:audio/mp3;base64,{b64}"
+            except Exception as exc:
+                logger.warning(f"TTS failed: {exc}")
+                return None
+
+        (steps_result, audio_url) = await asyncio.gather(_run_steps(), _run_tts())
+        steps, step_icons = steps_result
+        logger.info(
+            f"[TIMING] steps+tts (parallel)={_elapsed(t0)} "
+            f"steps={len(steps or [])}"
+        )
 
         # ── Build sources ──────────────────────────────────
+        logger.info(f"[TIMING] ══ TOTAL end-to-end={_elapsed(t_start)} ══")
         sources = [
             Source(
                 doc_name=chunk.doc_name,

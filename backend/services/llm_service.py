@@ -12,9 +12,11 @@ in the user's language from whatever language the context is in.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+import re
 import httpx
 from google import genai
 from google.genai import types
@@ -67,11 +69,14 @@ async def generate_answer_sealion(
         return data["choices"][0]["message"]["content"]
 
 
-# ── Gemini 3 Flash Preview (Fallback LLM) ───────────────
+# ── Gemini fallback chain ────────────────────────────────
+# Use alias names (no -001 suffix) so Vertex AI always resolves to the
+# latest stable version. Only gemini-3-flash-preview needs explicit preview.
 GEMINI_MODELS_PRIORITY = [
     "gemini-3-flash-preview",
-    "gemini-2.0-flash-001",
-    "gemini-1.5-flash-001",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
 ]
 
 
@@ -92,16 +97,29 @@ async def _generate_with_fallback_model(
 ) -> str:
     last_exc: Exception | None = None
     for model_name in GEMINI_MODELS_PRIORITY:
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=config,
-            )
-            return response.text
-        except Exception as exc:
-            logger.warning(f"Gemini model {model_name} failed: {exc}")
-            last_exc = exc
+        # Retry this model once on 429 (rate limit) with a short backoff
+        # before giving up and moving to the next model.
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=config,
+                )
+                return response.text
+            except Exception as exc:
+                err_str = str(exc)
+                is_rate_limited = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
+                if is_rate_limited and attempt == 0:
+                    logger.warning(
+                        f"Gemini model {model_name} rate-limited (429); "
+                        "waiting 3 s before retry…"
+                    )
+                    await asyncio.sleep(3)
+                    continue
+                logger.warning(f"Gemini model {model_name} failed: {exc}")
+                last_exc = exc
+                break
     raise last_exc  # type: ignore
 
 
@@ -185,30 +203,92 @@ def _parse_json_lenient(text: str) -> dict:
     return json.loads(text)
 
 
+def _extract_steps_regex(text: str) -> tuple[list[str], list[str]]:
+    """
+    Last-resort regex extractor: pull numbered list items from plain text.
+    Works on both Malay and English step lists produced by the LLM when
+    JSON output is malformed.
+    """
+    # Match "1. ...", "2) ...", "Langkah 1: ..." etc.
+    patterns = [
+        r"(?:^|\n)\s*(?:Langkah\s+)?\d+[\.\):\s]\s*(.+?)(?=\n\s*(?:Langkah\s+)?\d+[\.\):\s]|\Z)",
+        r"(?:^|\n)\s*[-•*]\s*(.+?)(?=\n\s*[-•*]|\Z)",
+    ]
+    for pattern in patterns:
+        matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
+        steps = [m.strip().replace("\n", " ") for m in matches if m.strip()]
+        if len(steps) >= 2:
+            icons = ["CheckCircle"] * len(steps)
+            return steps, icons
+    return [], []
+
+
 async def extract_steps(answer: str) -> tuple[list[str], list[str]]:
     """
     Extract step-by-step instructions from an answer using Gemini.
     PRD F09: Visual step-by-step instruction cards.
+
+    Robustness layers (in order):
+      1. Gemini structured output (response_mime_type=application/json)
+         guarantees syntactically valid JSON from the model.
+      2. _parse_json_lenient — handles markdown fences / extra text if the
+         first model in the fallback chain doesn't support structured output.
+      3. _extract_steps_regex — pulls numbered steps from plain text as a
+         last resort so the caller always gets *something* useful.
     """
     try:
         client = _get_gemini_client()
         prompt = STEP_EXTRACTION_PROMPT.format(answer=answer)
-        text = await _generate_with_fallback_model(
-            client,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.1,
-                max_output_tokens=1024,
-            ),
-        )
 
-        data = _parse_json_lenient(text)
-        steps = data.get("steps", [])
-        icons = data.get("step_icons", [])
-        # Pad icons to match steps if LLM returned fewer
-        while len(icons) < len(steps):
-            icons.append("CheckCircle")
-        return steps, icons
+        # Layer 1: structured JSON output — Gemini is constrained by the
+        # model to emit only valid JSON, eliminating parse errors at source.
+        try:
+            text = await _generate_with_fallback_model(
+                client,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    max_output_tokens=1024,
+                    response_mime_type="application/json",
+                ),
+            )
+        except Exception as structured_exc:
+            # Some older models in the fallback chain may not support
+            # response_mime_type; fall back to plain generation.
+            logger.debug(
+                f"Structured JSON output unavailable ({structured_exc}); "
+                "retrying without mime constraint"
+            )
+            text = await _generate_with_fallback_model(
+                client,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    max_output_tokens=1024,
+                ),
+            )
+
+        # Layer 2: lenient JSON parser
+        try:
+            data = _parse_json_lenient(text)
+            steps = data.get("steps", [])
+            icons = data.get("step_icons", [])
+            if steps:
+                while len(icons) < len(steps):
+                    icons.append("CheckCircle")
+                return steps, icons
+        except Exception as json_exc:
+            logger.debug(f"Lenient JSON parse failed ({json_exc}); trying regex fallback")
+
+        # Layer 3: regex extraction from the raw LLM text
+        steps, icons = _extract_steps_regex(text)
+        if steps:
+            logger.info(f"Step extraction recovered {len(steps)} steps via regex fallback")
+            return steps, icons
+
+        logger.debug("Step extraction: no steps found in answer (answer may not be procedural)")
+        return [], []
+
     except Exception as exc:
         logger.warning(f"Step extraction failed: {exc}")
         return [], []
