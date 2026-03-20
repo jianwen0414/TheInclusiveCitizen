@@ -86,6 +86,18 @@ class IngestResponse(BaseModel):
     chunks_created: int
 
 
+# ── /api/extract-steps ───────────────────────────────────
+
+class ExtractStepsRequest(BaseModel):
+    answer: str
+    language: str = "English"
+
+
+class ExtractStepsResponse(BaseModel):
+    steps: list[str]
+    step_icons: list[str]
+
+
 # ── /api/health ──────────────────────────────────────────
 
 class HealthResponse(BaseModel):

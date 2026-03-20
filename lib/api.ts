@@ -57,6 +57,16 @@ export interface HealthResponse {
   services: Record<string, string>;
 }
 
+export interface ExtractStepsRequest {
+  answer: string;
+  language: string;
+}
+
+export interface ExtractStepsResponse {
+  steps: string[];
+  step_icons: string[];
+}
+
 // ── API Functions ─────────────────────────────────────
 
 export async function queryBackend(req: QueryRequest): Promise<QueryResponse> {
@@ -147,5 +157,18 @@ export async function ingestDocument(
 export async function checkHealth(): Promise<HealthResponse> {
   const res = await fetch(`${API_BASE}/api/health`);
   if (!res.ok) throw new Error("Health check failed");
+  return res.json();
+}
+
+export async function extractStepsApi(req: ExtractStepsRequest): Promise<ExtractStepsResponse> {
+  const res = await fetch(`${API_BASE}/api/extract-steps`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Step extraction failed: ${err}`);
+  }
   return res.json();
 }

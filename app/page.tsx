@@ -53,11 +53,6 @@ export default function LandingPage() {
           {/* Border beam effect */}
           <BorderBeam size={250} duration={12} delay={9} />
         </div>
-
-        {/* Footer attribution */}
-        <p className="absolute text-xs md:text-base bottom-4 right-4 text-zinc-400 pointer-events-none">
-          V Hack 2026 — USM
-        </p>
       </div>
     </main>
   )

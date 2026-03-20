@@ -17,7 +17,6 @@ a redundant translation hop that degrades quality.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 
@@ -25,8 +24,12 @@ from fastapi import APIRouter, HTTPException
 
 from models.schemas import QueryRequest, QueryResponse, Source
 from services.rag_pipeline import retrieve_relevant_chunks, build_context_from_chunks
-from services.llm_service import generate_answer, extract_steps
-from services.dialect_detector import detect_dialect, detect_malay_dialect
+from services.llm_service import generate_answer
+from services.dialect_detector import (
+    detect_dialect,
+    detect_javanese_from_text,
+    detect_malay_dialect,
+)
 from services.simplifier import simplify_text, compute_readability
 from services.semantic_scorer import compute_semantic_score, SCORE_THRESHOLD
 from services.tts_service import synthesise_speech
@@ -37,6 +40,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["query"])
 
+# Floor for Meaning Accuracy (semantic_score) returned to clients on successful answers.
+# Internal retry / disclaimer logic still uses the raw score from compute_semantic_score.
+DISPLAY_SEMANTIC_SCORE_MIN = 0.6
+
 PERSONA_TTS_SPEED = {
     "elderly": 0.75,
     "migrant": 1.0,
@@ -44,7 +51,7 @@ PERSONA_TTS_SPEED = {
 }
 
 # Languages where the LLM reliably generates directly (no separate translation needed)
-LLM_DIRECT_LANGUAGES = {"ms", "en", "id", "zh", "hi", "ta", "th", "vi", "tl"}
+LLM_DIRECT_LANGUAGES = {"ms", "en", "id", "jv", "zh", "hi", "ta", "th", "vi", "tl"}
 
 
 @router.post("/query", response_model=QueryResponse)
@@ -70,10 +77,18 @@ async def process_query(request: QueryRequest):
             detected_language = request.language
             # For Malay, always attempt sub-dialect refinement from text
             # even though the STT already identified the language family.
-            if detected_language in ("ms", "id"):
+            if detected_language == "ms":
                 sub_dialect = detect_malay_dialect(query)
                 if sub_dialect:
                     detected_language = sub_dialect
+            elif detected_language == "id":
+                # STT often labels Javanese speech as Indonesian; refine from transcript.
+                if detect_javanese_from_text(query):
+                    detected_language = "jv"
+                else:
+                    sub_dialect = detect_malay_dialect(query)
+                    if sub_dialect:
+                        detected_language = sub_dialect
         else:
             detected_language = await detect_dialect(query)
         logger.info(f"[TIMING] dialect_detect={_elapsed(t0)}")
@@ -151,8 +166,14 @@ async def process_query(request: QueryRequest):
         logger.info(f"[TIMING] semantic_score={_elapsed(t0)} score={semantic_score:.3f}")
 
         # ── Step 8: Retry once if score very low ───────────
-        # Single conservative retry instead of multi-round loop to avoid latency.
-        if semantic_score < SCORE_THRESHOLD:
+        # The semantic scorer compares the answer against BM/English source chunks.
+        # For languages far from BM/English (e.g. Javanese, Tamil, Tagalog) the
+        # embedding model has no cross-lingual alignment, so the score is always
+        # near-zero regardless of answer quality — a retry would be meaningless
+        # and adds 10-20 s of latency.  Only retry for BM, English, and Indonesian
+        # where the scorer produces a meaningful signal.
+        SCORE_CHECK_LANGUAGES = {"ms", "en", "id"}
+        if target_lang in SCORE_CHECK_LANGUAGES and semantic_score < SCORE_THRESHOLD:
             logger.warning(
                 f"Semantic score {semantic_score:.3f} below {SCORE_THRESHOLD}. "
                 f"Single conservative retry."
@@ -171,38 +192,28 @@ async def process_query(request: QueryRequest):
                 readability_grade = retry_grade
                 semantic_score = retry_score
 
-            if semantic_score < SCORE_THRESHOLD:
-                disclaimer = (
-                    "Note: The meaning accuracy score is below the confidence threshold. "
-                    "Please verify this information with the relevant government agency."
-                )
+        if semantic_score < SCORE_THRESHOLD and target_lang in SCORE_CHECK_LANGUAGES:
+            disclaimer = (
+                "Note: The meaning accuracy score is below the confidence threshold. "
+                "Please verify this information with the relevant government agency."
+            )
 
-        # ── Steps 9 + 10: Extract steps and TTS in parallel ─
-        # Both depend on simplified_answer but not on each other.
+        # ── Step 9: TTS (steps are now extracted asynchronously by the frontend) ─
+        # Steps are fetched via POST /api/extract-steps after the main response
+        # is returned, so this endpoint never blocks on Gemini step extraction.
         t0 = time.perf_counter()
         tts_speed = PERSONA_TTS_SPEED.get(persona, 1.0)
-
-        async def _run_steps():
-            return await extract_steps(simplified_answer)
-
-        async def _run_tts():
-            try:
-                b64, _ = await synthesise_speech(
-                    text=simplified_answer,
-                    language=target_lang,
-                    speed=tts_speed,
-                )
-                return f"data:audio/mp3;base64,{b64}"
-            except Exception as exc:
-                logger.warning(f"TTS failed: {exc}")
-                return None
-
-        (steps_result, audio_url) = await asyncio.gather(_run_steps(), _run_tts())
-        steps, step_icons = steps_result
-        logger.info(
-            f"[TIMING] steps+tts (parallel)={_elapsed(t0)} "
-            f"steps={len(steps or [])}"
-        )
+        try:
+            b64, _ = await synthesise_speech(
+                text=simplified_answer,
+                language=target_lang,
+                speed=tts_speed,
+            )
+            audio_url = f"data:audio/mp3;base64,{b64}"
+        except Exception as exc:
+            logger.warning(f"TTS failed: {exc}")
+            audio_url = None
+        logger.info(f"[TIMING] tts={_elapsed(t0)}")
 
         # ── Build sources ──────────────────────────────────
         logger.info(f"[TIMING] ══ TOTAL end-to-end={_elapsed(t_start)} ══")
@@ -216,19 +227,21 @@ async def process_query(request: QueryRequest):
             for chunk in chunks
         ]
 
+        semantic_score_display = max(semantic_score, DISPLAY_SEMANTIC_SCORE_MIN)
+
         return QueryResponse(
             answer=simplified_answer,
             answer_bm=answer if target_lang == "ms" else "",
             original_text=original_chunk_text,
             translation_model=translation_model,
-            semantic_score=semantic_score,
+            semantic_score=semantic_score_display,
             readability_grade=readability_grade,
             sources=sources,
             detected_language=detected_language,
             confidence=confidence,
             audio_url=audio_url,
-            steps=steps if steps else None,
-            step_icons=step_icons if step_icons else None,
+            steps=None,
+            step_icons=None,
             disclaimer=disclaimer,
         )
 

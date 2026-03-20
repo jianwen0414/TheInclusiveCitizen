@@ -1,12 +1,17 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState } from "react"
 import { Volume2, Loader2, FileText, Share2, BookOpen } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 
 const LANGUAGE_NAMES: Record<string, string> = {
   ms: "Bahasa Malaysia",
+  "ms-kelantanese": "Bahasa Malaysia - Kelantanese",
+  "ms-kedah": "Bahasa Malaysia - Kedah Malay",
+  "ms-sabah": "Bahasa Malaysia - Sabah Malay",
+  "ms-sarawak": "Bahasa Malaysia - Sarawak Malay",
   id: "Bahasa Indonesia",
+  jv: "Javanese",
   en: "English",
   zh: "Chinese",
   ta: "Tamil",
@@ -24,8 +29,13 @@ const LANGUAGE_NAMES: Record<string, string> = {
 
 export function getLanguageName(code: string): string {
   if (!code) return "English"
-  const base = code.split("-")[0]
-  return LANGUAGE_NAMES[base] || code
+  const normalized = code.trim()
+  // If the full dialect code exists, prefer that.
+  if (LANGUAGE_NAMES[normalized]) return LANGUAGE_NAMES[normalized]
+
+  // Otherwise fall back to the base language family (ms/en/tl/etc.)
+  const base = normalized.split("-")[0]
+  return LANGUAGE_NAMES[base] || normalized
 }
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -47,6 +57,7 @@ export interface Message {
   confidence?: number
   steps?: string[]
   stepIcons?: string[]
+  stepsLoading?: boolean
   audioUrl?: string
   disclaimer?: string
   persona?: string
@@ -88,21 +99,6 @@ export function MessageBubble({ message, onViewSource, onShare }: MessageBubbleP
       setIsPlaying(false)
     }
   }
-
-  // PRD F07/F08: Auto-play voice response for Warga Emas (elderly) persona
-  const hasAutoPlayed = useRef(false)
-  useEffect(() => {
-    if (
-      message.persona === "elderly" &&
-      message.type === "ai" &&
-      message.audioUrl &&
-      !hasAutoPlayed.current
-    ) {
-      hasAutoPlayed.current = true
-      handlePlayVoice()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [message.audioUrl])
 
   if (isUser) {
     return (
@@ -212,9 +208,26 @@ export function MessageBubble({ message, onViewSource, onShare }: MessageBubbleP
         </div>
       </div>
 
-      {/* Step cards */}
+      {/* Step cards — shown when ready; skeleton while extracting */}
       {message.steps && message.stepIcons && (
         <StepCards steps={message.steps} stepIcons={message.stepIcons} />
+      )}
+      {message.stepsLoading && !message.steps && (
+        <div className="flex gap-3 overflow-x-hidden pb-2 -mx-2 px-2">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="flex flex-col gap-2 min-w-[140px] max-w-[140px] p-3 bg-surface rounded-2xl shadow-elevation-1 shrink-0 animate-pulse"
+            >
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-full bg-border-subtle" />
+                <div className="w-4 h-4 rounded bg-border-subtle" />
+              </div>
+              <div className="h-3 rounded bg-border-subtle w-full" />
+              <div className="h-3 rounded bg-border-subtle w-3/4" />
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )

@@ -52,14 +52,18 @@ USER QUESTION: {query}
 Based ONLY on the official document context above, answer the user's question in Bahasa Malaysia."""
 
 
-STEP_EXTRACTION_PROMPT = """Given the following answer about a government procedure, extract clear step-by-step instructions.
+STEP_EXTRACTION_PROMPT = """You are a step extraction assistant for a multilingual government services app.
 
-Return ONLY valid JSON. Do not include any explanation before or after the JSON.
+The answer below is written in {language}. Your task:
+1. Read the answer carefully, regardless of its language.
+2. Identify ANY sequential actions, requirements, or stages described (even if not explicitly numbered).
+3. Break them into short, clear step texts — keep each step in the SAME language as the answer ({language}). Do NOT translate.
+4. If the answer describes a process or procedure, you MUST extract steps. Only return empty steps if the answer is purely definitional with zero procedural content.
 
 Answer:
 {answer}
 
-Respond with exactly this JSON structure (nothing else):
+Return ONLY this JSON (no other text before or after):
 {{"steps": ["Step 1 text", "Step 2 text"], "step_icons": ["FileText", "Building2"]}}
 
 Use icon names from: FileText, Building2, Send, Clock, CreditCard, Users, Phone, MapPin, CheckCircle, Download, Upload, Calendar, Shield, Heart, Briefcase, Home"""
@@ -97,6 +101,8 @@ DIALECT_PROMPTS = {
     "ms-kedah": build_system_prompt("Bahasa Malaysia") + "\n\nNote: User speaks Kedah dialect. Answer in standard BM but use simple vocabulary.",
     "ms-sabah": build_system_prompt("Bahasa Malaysia") + "\n\nNote: User speaks Sabah Malay. Answer in standard BM but use simple vocabulary.",
     "ms-sarawak": build_system_prompt("Bahasa Malaysia") + "\n\nNote: User speaks Sarawak Malay. Answer in standard BM but use simple vocabulary.",
+    "id": build_system_prompt("Bahasa Indonesia") + "\n\nNote: User is an Indonesian migrant worker in Malaysia. Use simple, clear Indonesian.",
+    "jv": build_system_prompt("Javanese (Ngoko / everyday Javanese)") + "\n\nNote: User speaks Javanese. Answer in everyday Javanese (Ngoko) mixed with common Indonesian administrative terms where needed for clarity. Keep sentences short.",
 }
 
 

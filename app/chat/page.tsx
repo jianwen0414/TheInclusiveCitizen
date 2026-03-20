@@ -10,7 +10,7 @@ import { SourcePanel } from "@/components/SourcePanel"
 import { ShareModal } from "@/components/ShareModal"
 import { Message } from "@/components/MessageBubble"
 import { cn } from "@/lib/utils"
-import { queryBackend } from "@/lib/api"
+import { queryBackend, extractStepsApi } from "@/lib/api"
 import { getLanguageName } from "@/components/MessageBubble"
 
 const PROCESSING_STEPS = [
@@ -92,11 +92,14 @@ export default function Home() {
         : response.translation_model === "nllb200" ? "nllb_200"
         : undefined
 
+      const msgId = (Date.now() + 1).toString()
       const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: msgId,
         type: "ai",
         content: response.answer,
-        detectedLanguage: langName,
+        // Keep the full detected language code (e.g. ms-kelantanese)
+        // so UI can render dialect-level details reliably.
+        detectedLanguage: langCode,
         readabilityGrade: response.readability_grade,
         semanticScore: response.semantic_score,
         translationModel,
@@ -106,13 +109,34 @@ export default function Home() {
           : undefined,
         sourceExcerpt: response.sources[0]?.excerpt || response.original_text?.slice(0, 300),
         confidence: response.confidence,
-        steps: response.steps || undefined,
-        stepIcons: response.step_icons || undefined,
+        steps: undefined,
+        stepIcons: undefined,
+        stepsLoading: true,
         audioUrl: response.audio_url || undefined,
         disclaimer: response.disclaimer || undefined,
         persona,
       }
       setMessages((prev) => [...prev, aiMessage])
+
+      // Fetch steps asynchronously — message is already displayed above.
+      extractStepsApi({ answer: response.answer, language: langName }).then((stepsData) => {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === msgId
+              ? {
+                  ...m,
+                  steps: stepsData.steps.length > 0 ? stepsData.steps : undefined,
+                  stepIcons: stepsData.step_icons.length > 0 ? stepsData.step_icons : undefined,
+                  stepsLoading: false,
+                }
+              : m
+          )
+        )
+      }).catch(() => {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === msgId ? { ...m, stepsLoading: false } : m))
+        )
+      })
     } catch (err) {
       stopProgressAnimation()
       console.error("Query failed:", err)
@@ -344,16 +368,6 @@ export default function Home() {
           />
         </aside>
       </div>
-
-      {/* Bottom branding bar */}
-      <footer className="shrink-0 h-12 bg-footer-bg flex items-center justify-between px-6">
-        <span className="text-sm font-medium text-white font-heading">
-          The Inclusive Citizen
-        </span>
-        <span className="text-sm text-text-placeholder">
-          V Hack 2026 — USM
-        </span>
-      </footer>
 
       {/* Share modal */}
       <ShareModal

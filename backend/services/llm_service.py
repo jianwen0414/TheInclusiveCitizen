@@ -203,45 +203,156 @@ def _parse_json_lenient(text: str) -> dict:
     return json.loads(text)
 
 
-def _extract_steps_regex(text: str) -> tuple[list[str], list[str]]:
+# Icon keyword mapping: first matching keyword wins, case-insensitive
+_ICON_KEYWORDS: list[tuple[str, list[str]]] = [
+    ("Heart",      ["kesihatan", "kesehatan", "health", "medical", "fomema", "sakit", "doctor", "doktor", "periksa"]),
+    ("CreditCard", ["bayar", "pay", "fee", "yuran", "wang", "money", "levy", "biaya", "duit", "cost"]),
+    ("Upload",     ["upload", "unggah", "muat naik", "scan", "imbas", "online", "log in", "login", "myeg", "fwcms"]),
+    ("Download",   ["epass", "e-pass", "cetak", "print", "download"]),
+    ("Shield",     ["asuransi", "insurance", "perlindungan", "protect", "insuran", "socso", "spikpa", "fwcs"]),
+    ("FileText",   ["dokumen", "document", "surat", "form", "formul", "passport", "paspor", "permit", "kad", "card", "sijil", "certificate", "ic ", "ic,"]),
+    ("Building2",  ["pejabat", "office", "counter", "kaunter", "jabatan", "department", "agency", "agensi", "immigration", "imigresen", "jtksm"]),
+    ("Send",       ["hantar", "submit", "permohonan", "application", "mohon", "apply", "daftar", "register"]),
+    ("Briefcase",  ["kontrak", "contract", "kerja", "work", "employment", "majikan", "employer"]),
+    ("Calendar",   ["tarikh", "date", "renewal", "perpanjang", "renew", "luput", "expire", "tempoh", "period", "valid"]),
+    ("Clock",      ["masa", "time", "duration", "tunggu", "wait"]),
+    ("Phone",      ["telefon", "phone", "call", "hubungi", "contact", "consult", "kedutaan", "konsulat"]),
+    ("MapPin",     ["alamat", "address", "location", "lokasi"]),
+    ("Users",      ["pekerja", "worker", "employee", "asing", "foreign"]),
+]
+
+
+def _assign_icons(steps: list[str]) -> list[str]:
+    """Map each step to the best-matching Lucide icon name."""
+    icons = []
+    for step in steps:
+        step_lower = step.lower()
+        assigned = "CheckCircle"
+        for icon, keywords in _ICON_KEYWORDS:
+            if any(kw in step_lower for kw in keywords):
+                assigned = icon
+                break
+        icons.append(assigned)
+    return icons
+
+
+def _clean_step_text(raw: str, max_chars: int = 120) -> str:
     """
-    Last-resort regex extractor: pull numbered list items from plain text.
-    Works on both Malay and English step lists produced by the LLM when
-    JSON output is malformed.
+    Clean a raw step string: strip markdown bold/italic, remove source
+    citations, and truncate to the first sentence (or max_chars).
+    Used for both numbered/bullet items and Title:Content paragraphs.
     """
-    # Match "1. ...", "2) ...", "Langkah 1: ..." etc.
-    patterns = [
-        r"(?:^|\n)\s*(?:Langkah\s+)?\d+[\.\):\s]\s*(.+?)(?=\n\s*(?:Langkah\s+)?\d+[\.\):\s]|\Z)",
-        r"(?:^|\n)\s*[-•*]\s*(.+?)(?=\n\s*[-•*]|\Z)",
-    ]
-    for pattern in patterns:
-        matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)
-        steps = [m.strip().replace("\n", " ") for m in matches if m.strip()]
+    # Strip markdown bold/italic/code
+    t = re.sub(r'\*\*(.+?)\*\*', r'\1', raw)
+    t = re.sub(r'\*(.+?)\*', r'\1', t)
+    t = re.sub(r'_(.+?)_', r'\1', t)
+    t = re.sub(r'`(.+?)`', r'\1', t)
+    # Remove source citations: "(Source 1)", "(Sumber 2)", "(Sumber: X)" etc.
+    t = re.sub(r'\s*\((?:Source|Sumber)[^)]*\)', '', t, flags=re.IGNORECASE)
+    t = t.strip()
+    # Truncate at first sentence boundary (.  !  ?) followed by space or end
+    sent_end = re.search(r'[.!?](?=\s|$)', t)
+    if sent_end and sent_end.end() <= max_chars + 1:
+        t = t[: sent_end.end()]
+    else:
+        t = t[:max_chars].rstrip()
+    return t.strip()
+
+
+def _extract_steps_deterministic(text: str) -> tuple[list[str], list[str]]:
+    """
+    Deterministic (zero-LLM) step extractor.  Handles three answer formats
+    in order of specificity — returns on the first that produces >= 2 steps:
+
+      Format 1 — Numbered list
+        "1. Do this", "2) Do that", "Langkah 1: ...", "Step 2 ..."
+      Format 2 — Bullet list
+        "- Do this", "• Do that", "* Item"
+      Format 3 — Title:Content paragraphs  (Javanese/BM LLM style)
+        "FOMEMA: Pekerja kudu...", "Pemeriksaan Dhisik: Pasten paspor..."
+        Also handles simplifier-generated markdown bold:
+        "**Mlebu (Login):** Bapak/Ibu mlebu..."
+    """
+    STEP_WORDS = r"(?:Langkah|Tahap|Cara|Step)\s+"
+
+    # Format 1: numbered
+    numbered = re.findall(
+        rf"(?:^|\n)\s*(?:{STEP_WORDS})?\d+[\.\):\s]\s*(.+?)(?=\n\s*(?:{STEP_WORDS})?\d+[\.\):\s]|\Z)",
+        text,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if len(numbered) >= 2:
+        steps = [_clean_step_text(m.strip().replace("\n", " ")) for m in numbered if m.strip()]
+        steps = [s for s in steps if s]
         if len(steps) >= 2:
-            icons = ["CheckCircle"] * len(steps)
-            return steps, icons
+            return steps, _assign_icons(steps)
+
+    # Format 2: bullet — use negative lookahead so "**bold**" lines are NOT
+    # treated as bullets (a lone `*` used as bullet, not `**` markdown bold).
+    bullets = re.findall(
+        r"(?:^|\n)\s*(?:[-•]|\*(?!\*))\s*(.+?)(?=\n\s*(?:[-•]|\*(?!\*))|\Z)",
+        text,
+        re.DOTALL,
+    )
+    if len(bullets) >= 2:
+        steps = [_clean_step_text(m.strip().replace("\n", " ")) for m in bullets if m.strip()]
+        steps = [s for s in steps if s]
+        if len(steps) >= 2:
+            return steps, _assign_icons(steps)
+
+    # Format 3: Title:Content per line.
+    # Handles both plain "Title: content" and markdown "**Title:** content".
+    title_content: list[str] = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # Try markdown bold first: **Title:** content
+        m = re.match(r'^\*\*([A-Za-z][A-Za-z0-9 /().-]{0,49}):\*\*\s+(.{10,})$', line)
+        if not m:
+            # Plain: Title: content
+            m = re.match(r'^([A-Za-z][A-Za-z0-9 /().-]{0,49}):\s+(.{10,})$', line)
+        if m:
+            title_raw = m.group(1).strip()
+            content_raw = m.group(2).strip()
+            if len(title_raw.split()) <= 4:
+                clean_content = _clean_step_text(content_raw, max_chars=100)
+                step = f"{title_raw}: {clean_content}" if clean_content else title_raw
+                title_content.append(step)
+    if len(title_content) >= 2:
+        return title_content, _assign_icons(title_content)
+
     return [], []
 
 
-async def extract_steps(answer: str) -> tuple[list[str], list[str]]:
+async def extract_steps(answer: str, language: str = "English") -> tuple[list[str], list[str]]:
     """
-    Extract step-by-step instructions from an answer using Gemini.
+    Extract step-by-step instructions from an answer.
     PRD F09: Visual step-by-step instruction cards.
 
     Robustness layers (in order):
-      1. Gemini structured output (response_mime_type=application/json)
-         guarantees syntactically valid JSON from the model.
-      2. _parse_json_lenient — handles markdown fences / extra text if the
-         first model in the fallback chain doesn't support structured output.
-      3. _extract_steps_regex — pulls numbered steps from plain text as a
-         last resort so the caller always gets *something* useful.
+      1. Deterministic regex — zero-latency; handles numbered lists, bullet
+         lists, and Title:Content paragraphs (the Javanese LLM output style).
+         Most structured LLM answers are caught here without any API call.
+      2. Gemini structured output (response_mime_type=application/json) — only
+         called when deterministic extraction finds nothing, i.e. the answer is
+         prose-only and may still contain implicit procedural steps.
+      3. _parse_json_lenient — tolerates markdown fences / extra text from
+         models that do not support response_mime_type.
+      4. _extract_steps_deterministic on the Gemini output — catches cases
+         where Gemini itself responds with a numbered/title list instead of JSON.
     """
+    # Layer 1: deterministic extraction (fast, no API call)
+    steps, icons = _extract_steps_deterministic(answer)
+    if steps:
+        logger.info(f"Step extraction: {len(steps)} steps via deterministic extractor")
+        return steps, icons
+
+    # Layer 2-4: LLM fallback for unstructured prose answers
     try:
         client = _get_gemini_client()
-        prompt = STEP_EXTRACTION_PROMPT.format(answer=answer)
+        prompt = STEP_EXTRACTION_PROMPT.format(answer=answer, language=language)
 
-        # Layer 1: structured JSON output — Gemini is constrained by the
-        # model to emit only valid JSON, eliminating parse errors at source.
         try:
             text = await _generate_with_fallback_model(
                 client,
@@ -253,8 +364,6 @@ async def extract_steps(answer: str) -> tuple[list[str], list[str]]:
                 ),
             )
         except Exception as structured_exc:
-            # Some older models in the fallback chain may not support
-            # response_mime_type; fall back to plain generation.
             logger.debug(
                 f"Structured JSON output unavailable ({structured_exc}); "
                 "retrying without mime constraint"
@@ -268,7 +377,7 @@ async def extract_steps(answer: str) -> tuple[list[str], list[str]]:
                 ),
             )
 
-        # Layer 2: lenient JSON parser
+        # Layer 3: lenient JSON parser
         try:
             data = _parse_json_lenient(text)
             steps = data.get("steps", [])
@@ -276,17 +385,18 @@ async def extract_steps(answer: str) -> tuple[list[str], list[str]]:
             if steps:
                 while len(icons) < len(steps):
                     icons.append("CheckCircle")
+                logger.info(f"Step extraction: {len(steps)} steps via Gemini JSON")
                 return steps, icons
         except Exception as json_exc:
-            logger.debug(f"Lenient JSON parse failed ({json_exc}); trying regex fallback")
+            logger.debug(f"Lenient JSON parse failed ({json_exc}); trying deterministic on Gemini output")
 
-        # Layer 3: regex extraction from the raw LLM text
-        steps, icons = _extract_steps_regex(text)
+        # Layer 4: deterministic on the raw Gemini text (Gemini may output a list instead of JSON)
+        steps, icons = _extract_steps_deterministic(text)
         if steps:
-            logger.info(f"Step extraction recovered {len(steps)} steps via regex fallback")
+            logger.info(f"Step extraction: {len(steps)} steps via deterministic on Gemini output")
             return steps, icons
 
-        logger.debug("Step extraction: no steps found in answer (answer may not be procedural)")
+        logger.debug("Step extraction: no steps found (answer may not be procedural)")
         return [], []
 
     except Exception as exc:

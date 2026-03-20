@@ -67,6 +67,29 @@ MANGLISH_MARKERS = [
     "aiyo", "can or not", "how come", "last time",
 ]
 
+# Javanese (especially Ngoko) — distinct from standard Bahasa Indonesia.
+# Used when lingua/langdetect say INDONESIAN but the text is clearly Javanese
+# (PRD: migrant worker persona “Budi”).
+JAVANESE_MARKERS = [
+    "kulo", "kulonuwun", "panjenengan", "sampeyan", "mboten", "nggih",
+    "menika", "punika", "niki", "kowe", "awakmu", "sliramu",
+    "iki", "kuwi", "kono", "kene",
+    "ora", "ojo", "aja", "durung", "wis", "wes", "bakal", "arep",
+    "ngerti", "ngertos", "njaluk", "nedya", "piye", "kepiye", "kok",
+    "tansah", "mung", "mawon", "badhe", "bade",
+]
+
+
+def detect_javanese_from_text(text: str) -> bool:
+    """True if the text has enough Javanese-specific tokens (Ngoko / polite)."""
+    text_lower = text.lower()
+    words = set(re.findall(r"\b\w+\b", text_lower))
+    hits = sum(1 for m in JAVANESE_MARKERS if m in words)
+    # Multi-word greeting
+    if "kulo" in text_lower or "kulonuwun" in text_lower:
+        hits += 1
+    return hits >= 2
+
 
 def detect_malay_dialect(text: str) -> str | None:
     """
@@ -272,44 +295,50 @@ async def detect_dialect(text: str) -> str:
     lingua_result = _detect_with_lingua(text)
 
     if lingua_result in ("ms", "id"):
-        # Malay and Indonesian are mutually intelligible — lingua-py
-        # cannot reliably distinguish them.  Since this is a Malaysian
-        # government assistant, any ms/id ambiguity resolves to "ms".
-        dialect = _detect_malay_dialect(text)
-        if dialect:
-            return dialect
-        return "ms"
+        # Javanese check runs FIRST for both lingua=ms and lingua=id.
+        # Lingua frequently labels Javanese as ms (not just id) because
+        # all three are Latin-script Austronesian languages with shared roots.
+        if detect_javanese_from_text(text):
+            logger.debug("Overriding lingua=%s -> jv (Jav. markers in text)", lingua_result)
+            return "jv"
+        if lingua_result == "ms":
+            dialect = _detect_malay_dialect(text)
+            if dialect:
+                return dialect
+            return "ms"
+        # lingua_result == "id"
+        return "id"
 
-    # Colloquial Malaysian Malay (especially dialect spellings) is sometimes
-    # misclassified as TAGALOG because both are Austronesian. If the text
-    # clearly carries Malay dialect markers OR strong Malaysian BM cues,
-    # override lingua and route through the Malay dialect path.
+    # Colloquial Malaysian Malay or Javanese is sometimes misclassified as
+    # TAGALOG or other Austronesian languages. Check Javanese first, then
+    # Malay dialect markers, then trust lingua result.
     if lingua_result and lingua_result not in ("ms", "id"):
+        if detect_javanese_from_text(text):
+            logger.debug("Overriding lingua=%s -> jv (Jav. markers in text)", lingua_result)
+            return "jv"
         dialect = _detect_malay_dialect(text)
         if dialect:
-            logger.debug(
-                "Overriding lingua=%s → %s (dialect markers in text)",
-                lingua_result,
-                dialect,
-            )
+            logger.debug("Overriding lingua=%s -> %s (dialect markers)", lingua_result, dialect)
             return dialect
         if lingua_result == "tl" and _has_malay_content_cues(text):
-            logger.debug(
-                "Overriding lingua=tl → ms (Malay content cues; likely false Tagalog)"
-            )
+            logger.debug("Overriding lingua=tl -> ms (Malay content cues)")
             return "ms"
 
     if lingua_result:
         return lingua_result
 
-    # Fallback: LangDetect
+    # Fallback: LangDetect — same Javanese-first priority as the lingua path.
     langdetect_result = _detect_with_langdetect(text)
     if langdetect_result:
         if langdetect_result in ("ms", "id"):
-            dialect = _detect_malay_dialect(text)
-            if dialect:
-                return dialect
-            return "ms"
+            if detect_javanese_from_text(text):
+                return "jv"
+            if langdetect_result == "ms":
+                dialect = _detect_malay_dialect(text)
+                if dialect:
+                    return dialect
+                return "ms"
+            return "id"
         return langdetect_result
 
     return "en"

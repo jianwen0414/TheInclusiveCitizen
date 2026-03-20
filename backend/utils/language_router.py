@@ -81,6 +81,9 @@ TTS_VOICE_MAP = {
     "ms": "ms-MY",
     "en": "en-US",   # Google TTS has no en-MY locale; en-US is the correct code
     "id": "id-ID",
+    # No dedicated Javanese locale in Google Cloud TTS — Indonesian voice is the
+    # closest practical fallback for Latin-script Javanese / mixed BI text.
+    "jv": "id-ID",
     "th": "th-TH",
     "tl": "fil-PH",
     "vi": "vi-VN",

@@ -9,7 +9,10 @@
     "lint": "eslint .",
     "demo:voice-e2e": "node scripts/e2e-mak-cik-rohani.mjs",
     "demo:voice-e2e:attach": "node scripts/e2e-mak-cik-rohani.mjs --cdp",
-    "demo:chrome-cdp": "powershell -ExecutionPolicy Bypass -File scripts/start_chrome_cdp_demo.ps1"
+    "demo:voice-e2e:budi": "node scripts/e2e-mak-cik-rohani.mjs --demo budi",
+    "demo:voice-e2e:budi:attach": "node scripts/e2e-mak-cik-rohani.mjs --demo budi --cdp",
+    "demo:chrome-cdp": "powershell -ExecutionPolicy Bypass -File scripts/start_chrome_cdp_demo.ps1",
+    "demo:chrome-cdp:budi": "powershell -ExecutionPolicy Bypass -File scripts/start_chrome_cdp_demo.ps1 -Demo budi"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",

@@ -14,6 +14,9 @@
  * Usage (repo root):
  *   npm run demo:voice-e2e
  *   npm run demo:voice-e2e:attach   # attach to YOUR Chrome (see below — browser stays open)
+ *   npm run demo:voice-e2e:budi      # Budi (migrant) — public/demo/budi.mp3 or ElevenLabs_*Budi*.mp3
+ *   npm run demo:voice-e2e:budi:attach
+ *   node scripts/e2e-mak-cik-rohani.mjs --demo budi --persona migrant
  *   node scripts/e2e-mak-cik-rohani.mjs --record-seconds 10
  *   node scripts/e2e-mak-cik-rohani.mjs --cdp-url http://127.0.0.1:9222
  *   set HEADLESS=1 && node scripts/e2e-mak-cik-rohani.mjs
@@ -28,7 +31,8 @@
  *   PLAYWRIGHT_CDP_URL    e.g. http://127.0.0.1:9222 (attach instead of launch)
  *   CDP_URL               Alias for PLAYWRIGHT_CDP_URL
  *   AUDIO_MP3             Explicit path to source MP3
- *   PERSONA               elderly | migrant | rural (default rural)
+ *   DEMO                    budi (optional; else Rohani)
+ *   PERSONA                 elderly | migrant | rural (default: rural, or migrant when --demo budi)
  *   RECORD_MS             Ms to keep recording after mic start (default: auto from MP3 length + slack)
  *   RECORD_PADDING_MS     Extra ms after detected audio length (default 800)
  *   HEADLESS              1 = headless (ignored in attach mode)
@@ -48,11 +52,34 @@ import { platform } from "node:os"
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(__dirname, "..")
 const CACHE_DIR = join(REPO_ROOT, "scripts", "demo-cache")
-const WAV_CACHED = join(CACHE_DIR, "mak_cik_rohani_chromium.wav")
 
-function findSourceMp3() {
+/** @param {"rohani" | "budi"} demo */
+function findSourceMp3(demo) {
   const envPath = process.env.AUDIO_MP3
   if (envPath && existsSync(envPath)) return resolve(envPath)
+
+  if (demo === "budi") {
+    const budiCandidates = [
+      join(REPO_ROOT, "public", "demo", "budi.mp3"),
+    ]
+    for (const c of budiCandidates) {
+      if (existsSync(c)) return c
+    }
+    try {
+      for (const name of readdirSync(REPO_ROOT)) {
+        if (
+          name.startsWith("ElevenLabs_") &&
+          name.includes("Budi") &&
+          name.endsWith(".mp3")
+        ) {
+          return join(REPO_ROOT, name)
+        }
+      }
+    } catch {
+      /* */
+    }
+    return null
+  }
 
   const candidates = [
     join(REPO_ROOT, "public", "demo", "mak_cik_rohani.mp3"),
@@ -166,15 +193,15 @@ function getMediaDurationMs(mediaPath, ffmpegExe) {
   return Math.ceil(sec * 1000)
 }
 
-function ensureWavFromMp3(mp3Path) {
+function ensureWavFromMp3(mp3Path, wavCached) {
   mkdirSync(CACHE_DIR, { recursive: true })
   const needRebuild =
-    !existsSync(WAV_CACHED) ||
-    statSync(mp3Path).mtimeMs > statSync(WAV_CACHED).mtimeMs
+    !existsSync(wavCached) ||
+    statSync(mp3Path).mtimeMs > statSync(wavCached).mtimeMs
 
   if (!needRebuild) {
-    console.log(`Using cached WAV: ${WAV_CACHED}`)
-    return WAV_CACHED
+    console.log(`Using cached WAV: ${wavCached}`)
+    return wavCached
   }
 
   const ffmpegExe = resolveFfmpegExecutable()
@@ -198,7 +225,7 @@ function ensureWavFromMp3(mp3Path) {
       "s16",
       "-c:a",
       "pcm_s16le",
-      WAV_CACHED,
+      wavCached,
     ],
     {
       stdio: "inherit",
@@ -213,12 +240,12 @@ function ensureWavFromMp3(mp3Path) {
   }
   if (result.status !== 0 && result.status !== null) {
     console.error(
-      `\nffmpeg exited with code ${result.status}. If the MP3 path has special characters, try moving it to public/demo/mak_cik_rohani.mp3\n`
+      `\nffmpeg exited with code ${result.status}. If the MP3 path has special characters, try moving it to public/demo/mak_cik_rohani.mp3 or public/demo/budi.mp3\n`
     )
     process.exit(1)
   }
-  console.log(`Wrote WAV for Chromium fake mic: ${WAV_CACHED}`)
-  return WAV_CACHED   // ensureWavFromMp3 guarantees non-null here
+  console.log(`Wrote WAV for Chromium fake mic: ${wavCached}`)
+  return wavCached   // ensureWavFromMp3 guarantees non-null here
 }
 
 /**
@@ -259,6 +286,8 @@ function parseArgs() {
   const args = process.argv.slice(2)
   let recordSeconds = null
   let cdpUrlFromCli = null
+  let demo = null
+  let cliPersona = null
   for (let i = 0; i < args.length; i++) {
     const a = args[i]
     if (a === "--record-seconds" && args[i + 1]) {
@@ -271,11 +300,21 @@ function parseArgs() {
       i++
     } else if (a?.startsWith("--cdp-url=")) {
       cdpUrlFromCli = a.slice("--cdp-url=".length)
+    } else if (a === "--demo" && args[i + 1]) {
+      demo = String(args[i + 1]).toLowerCase()
+      i++
+    } else if (a?.startsWith("--demo=")) {
+      demo = a.slice("--demo=".length).toLowerCase()
+    } else if (a === "--persona" && args[i + 1]) {
+      cliPersona = String(args[i + 1]).toLowerCase()
+      i++
+    } else if (a?.startsWith("--persona=")) {
+      cliPersona = a.slice("--persona=".length).toLowerCase()
     }
   }
   const envCdp = (process.env.PLAYWRIGHT_CDP_URL || process.env.CDP_URL || "").trim()
   const cdpUrl = cdpUrlFromCli || envCdp || null
-  return { recordSeconds, cdpUrl }
+  return { recordSeconds, cdpUrl, demo, cliPersona }
 }
 
 /**
@@ -324,10 +363,24 @@ async function attachPage(browser, chatUrl) {
 }
 
 async function main() {
-  const { recordSeconds, cdpUrl } = parseArgs()
+  const { recordSeconds, cdpUrl, demo: demoArg, cliPersona } = parseArgs()
+  const envDemo = (process.env.DEMO || "").toLowerCase()
+  const demo =
+    demoArg === "budi" || envDemo === "budi"
+      ? "budi"
+      : "rohani"
+  const wavCached =
+    demo === "budi"
+      ? join(CACHE_DIR, "budi_chromium.wav")
+      : join(CACHE_DIR, "mak_cik_rohani_chromium.wav")
+
   const baseUrl = (process.env.BASE_URL || "http://localhost:3000").replace(/\/$/, "")
   const chatUrl = `${baseUrl}/chat`
-  const persona = (process.env.PERSONA || "rural").toLowerCase()
+  const persona = (
+    cliPersona ||
+    process.env.PERSONA ||
+    (demo === "budi" ? "migrant" : "rural")
+  ).toLowerCase()
   const headless = process.env.HEADLESS === "1" || process.env.HEADLESS === "true"
   const keepOpenMs = process.env.KEEP_OPEN_MS
     ? Number(process.env.KEEP_OPEN_MS)
@@ -337,12 +390,19 @@ async function main() {
     !attachMode &&
     (process.env.NO_BROWSER_CLOSE === "1" || process.env.NO_BROWSER_CLOSE === "true")
 
-  const mp3 = findSourceMp3()
+  const mp3 = findSourceMp3(demo)
   if (!mp3) {
-    console.error(
-      "No MP3 found. Place ElevenLabs_*Mak Cik Rohani*.mp3 in the repo root,\n" +
-        "or public/demo/mak_cik_rohani.mp3, or set AUDIO_MP3=...\n"
-    )
+    if (demo === "budi") {
+      console.error(
+        "No MP3 found for Budi demo. Place ElevenLabs_*Budi*.mp3 in the repo root,\n" +
+          "or public/demo/budi.mp3, or set AUDIO_MP3=...\n"
+      )
+    } else {
+      console.error(
+        "No MP3 found. Place ElevenLabs_*Mak Cik Rohani*.mp3 in the repo root,\n" +
+          "or public/demo/mak_cik_rohani.mp3, or set AUDIO_MP3=...\n"
+      )
+    }
     process.exit(1)
   }
 
@@ -384,7 +444,7 @@ async function main() {
     }
   }
 
-  const wavAbs = resolve(ensureWavFromMp3(mp3))
+  const wavAbs = resolve(ensureWavFromMp3(mp3, wavCached))
   // Chromium on Windows accepts forward slashes in this flag
   const wavForChromium = wavAbs.replace(/\\/g, "/")
   // When starting Chrome from cmd/PowerShell, paths with spaces must be quoted inside this flag
@@ -393,7 +453,7 @@ async function main() {
       ? `--use-file-for-fake-audio-capture="${wavForChromium}"`
       : `--use-file-for-fake-audio-capture=${wavForChromium}`
 
-  console.log(`Source MP3: ${mp3}`)
+  console.log(`Demo: ${demo} | Source MP3: ${mp3}`)
   if (attachMode) {
     console.log(
       `Attach mode: CDP ${cdpUrl} (persona: ${persona}, record ~${recordMs}ms) — browser stays open after script exits.`

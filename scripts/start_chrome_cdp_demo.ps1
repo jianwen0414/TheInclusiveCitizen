@@ -1,17 +1,23 @@
-# Start Chrome with remote debugging (port 9222) + fake microphone WAV for Mak Cik Rohani attach-mode demo.
-# Run AFTER `npm run dev` is up. Then: npm run demo:voice-e2e:attach
+# Start Chrome with remote debugging (port 9222) + fake microphone WAV for voice attach-mode demo.
+# Run AFTER `npm run dev` is up. Then: npm run demo:voice-e2e:attach (or demo:voice-e2e:budi:attach)
 #
 # Uses a DEDICATED user-data-dir so this works even when your normal Chrome is open.
 # (Without it, Windows often merges into the existing Chrome process and IGNORES --remote-debugging-port → ECONNREFUSED.)
 #
-# Requires: scripts/demo-cache/mak_cik_rohani_chromium.wav
+# Requires: scripts/demo-cache/<wav> — mak_cik_rohani_chromium.wav (default) or budi_chromium.wav (-Demo budi)
 #
 # Run exactly:  npm run demo:chrome-cdp
 # Do not append Chrome flags to npm (spaces in paths break; use this script only).
 
+param(
+  [ValidateSet("rohani", "budi")]
+  [string]$Demo = "rohani"
+)
+
 $ErrorActionPreference = "Stop"
 
-$wav = Join-Path $PSScriptRoot "demo-cache\mak_cik_rohani_chromium.wav"
+$wavName = if ($Demo -eq "budi") { "budi_chromium.wav" } else { "mak_cik_rohani_chromium.wav" }
+$wav = Join-Path $PSScriptRoot "demo-cache\$wavName"
 $wavForward = ($wav -replace "\\", "/")
 
 $profileDir = Join-Path $PSScriptRoot "chrome-cdp-profile"
@@ -20,7 +26,7 @@ $profileDirForward = ($profileDir -replace "\\", "/")
 
 if (-not (Test-Path $wav)) {
   Write-Host "Missing WAV: $wav" -ForegroundColor Red
-  Write-Host "Create it first, e.g. run once (launches its own browser): npm run demo:voice-e2e" -ForegroundColor Yellow
+  Write-Host "Create it first, e.g. run once: npm run demo:voice-e2e  (or npm run demo:voice-e2e:budi for Budi)" -ForegroundColor Yellow
   Write-Host "Or convert MP3 with ffmpeg to that path (see docs/DEMO_MAK_CIK_ROHANI.md)." -ForegroundColor Yellow
   exit 1
 }
