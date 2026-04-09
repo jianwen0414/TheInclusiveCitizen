@@ -4,7 +4,7 @@ PRD Section 6.3 Online Query Phase — Full pipeline:
   1. Detect dialect
   2. Embed query (gemini-embedding-001, NO pre-translation — constraint #3)
   3. Retrieve document chunks from Supabase pgvector
-  4. Generate answer directly in the user's language via SEA-LION v4 / Gemini fallback
+  4. Generate answer directly in the user's language via Gemini 2.0 Flash (primary) / SEA-LION v4 BM specialist (fallback)
   5. Route to translation tier only if LLM cannot generate in target language
   6. Simplify the final answer (spaCy + LLM) — constraint #4
   7. Compute Semantic Preservation Score (source chunk vs final answer)
@@ -108,6 +108,7 @@ async def process_query(request: QueryRequest):
                 answer_bm="Maklumat ini tiada dalam dokumen rasmi yang dirujuk. Sila hubungi agensi berkaitan.",
                 original_text="",
                 translation_model="none",
+                llm_model="none",
                 semantic_score=0.0,
                 readability_grade=0.0,
                 sources=[],
@@ -124,13 +125,13 @@ async def process_query(request: QueryRequest):
         t0 = time.perf_counter()
         dialect_code = detected_language if detected_language.startswith("ms-") else target_lang
 
-        answer, llm_is_fallback = await generate_answer(
+        answer, llm_model = await generate_answer(
             context=context,
             query=query,
             target_lang=target_lang,
             dialect_code=dialect_code,
         )
-        logger.info(f"[TIMING] llm_generate={_elapsed(t0)} (fallback={llm_is_fallback})")
+        logger.info(f"[TIMING] llm_generate={_elapsed(t0)} (model={llm_model})")
         translation_model = "none"
 
         # ── Step 5: Translation (only for low-resource) ─────
@@ -234,6 +235,7 @@ async def process_query(request: QueryRequest):
             answer_bm=answer if target_lang == "ms" else "",
             original_text=original_chunk_text,
             translation_model=translation_model,
+            llm_model=llm_model,
             semantic_score=semantic_score_display,
             readability_grade=readability_grade,
             sources=sources,

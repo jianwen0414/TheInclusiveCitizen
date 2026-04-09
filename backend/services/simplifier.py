@@ -79,11 +79,9 @@ async def simplify_text(
     prompt = prompt_template.format(text=text, language=language)
 
     try:
-        from services.llm_service import _get_gemini_client, _generate_with_fallback_model
+        from services.llm_service import _generate_with_fallback_model
 
-        client = _get_gemini_client()
         simplified = await _generate_with_fallback_model(
-            client,
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.2,

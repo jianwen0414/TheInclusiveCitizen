@@ -1,12 +1,11 @@
 """
-LLM Service — SEA-LION v4 (primary) + Gemini 3 Flash Preview (fallback)
-SEA-LION model name per https://docs.sea-lion.ai/guides/inferencing/api:
-  "aisingapore/Gemma-SEA-LION-v4-27B-IT"
-Gemini fallback model per https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-flash:
-  "gemini-3-flash-preview" — available in location "global" ONLY (not us-central1)
+LLM Service — Gemini 3 Flash Preview (primary) + SEA-LION v4 (optional BM specialist fallback)
+Primary model configured via GEMINI_MODEL_ID env var (default: gemini-3-flash-preview).
+SEA-LION v4 model: "aisingapore/Gemma-SEA-LION-v4-27B-IT"
+  — only used when SEALION_API_KEY is set AND target output is a BM dialect.
 PRD Constraint #1: LLM must only answer from retrieved context.
 
-Adapted: prompts are now bilingual-aware — the LLM generates answers directly
+Adapted: prompts are bilingual-aware — the LLM generates answers directly
 in the user's language from whatever language the context is in.
 """
 
@@ -69,36 +68,52 @@ async def generate_answer_sealion(
         return data["choices"][0]["message"]["content"]
 
 
-# ── Gemini fallback chain ────────────────────────────────
-# Use alias names (no -001 suffix) so Vertex AI always resolves to the
-# latest stable version. Only gemini-3-flash-preview needs explicit preview.
-GEMINI_MODELS_PRIORITY = [
-    "gemini-3-flash-preview",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-flash",
-]
+# ── Gemini primary chain ─────────────────────────────────
+# Primary model is read from GEMINI_MODEL_ID at call time (default: gemini-2.0-flash).
+# Remaining chain provides automatic model-level fallback on quota/availability errors.
+def _gemini_models_priority() -> list[str]:
+    primary = os.getenv("GEMINI_MODEL_ID", "gemini-3-flash-preview")
+    # All current models are preview and served at location="global".
+    chain = [
+        "gemini-3-flash-preview",   # Primary (global)
+        "gemini-2.5-flash-preview", # Fallback preview (global)
+    ]
+    seen: set[str] = {primary}
+    result: list[str] = [primary]
+    for m in chain:
+        if m not in seen:
+            seen.add(m)
+            result.append(m)
+    return result
 
 
-def _get_gemini_client() -> genai.Client:
+def _get_gemini_client(location: str = "us-central1") -> genai.Client:
     project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
     os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
-    return genai.Client(
-        vertexai=True,
-        project=project,
-        location="global",
-    )
+    return genai.Client(vertexai=True, project=project, location=location)
+
+
+def _location_for_model(model: str) -> str:
+    """
+    Vertex AI requires different locations per model family:
+    - Stable GA models use versioned IDs (gemini-2.0-flash-001, etc.)
+      and are served at regional endpoints such as us-central1.
+    - Preview models are only available at location="global".
+    """
+    if "preview" in model:
+        return "global"
+    return "us-central1"
 
 
 async def _generate_with_fallback_model(
-    client: genai.Client,
     contents: str,
     config: types.GenerateContentConfig,
 ) -> str:
     last_exc: Exception | None = None
-    for model_name in GEMINI_MODELS_PRIORITY:
-        # Retry this model once on 429 (rate limit) with a short backoff
-        # before giving up and moving to the next model.
+    for model_name in _gemini_models_priority():
+        location = _location_for_model(model_name)
+        client = _get_gemini_client(location)
+        # Retry once on 429 (rate limit) before moving to the next model.
         for attempt in range(2):
             try:
                 response = client.models.generate_content(
@@ -129,14 +144,12 @@ async def generate_answer_gemini(
     answer_language: str = "Bahasa Malaysia",
     dialect_code: str = "ms",
 ) -> str:
-    client = _get_gemini_client()
     system_prompt = DIALECT_PROMPTS.get(dialect_code, build_system_prompt(answer_language))
     user_prompt = build_user_prompt(context, query, answer_language)
 
     return await _generate_with_fallback_model(
-        client,
         contents=user_prompt,
-            config=types.GenerateContentConfig(
+        config=types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=0.3,
             max_output_tokens=2048,
@@ -144,29 +157,45 @@ async def generate_answer_gemini(
     )
 
 
-# ── Unified Generate with Fallback ───────────────────────
+# ── Unified Generate: Gemini primary, SEA-LION BM specialist ─
 
 async def generate_answer(
     context: str,
     query: str,
     target_lang: str = "ms",
     dialect_code: str = "ms",
-) -> tuple[str, bool]:
+) -> tuple[str, str]:
     """
     Generate answer in the user's target language directly.
-    Returns (answer_text, is_fallback_used).
+    Returns (answer_text, model_id_used).
+
+    Routing:
+      Primary  — Gemini 2.0 Flash (all languages, always tried first).
+      Secondary — SEA-LION v4 BM specialist: only when SEALION_API_KEY is
+                  configured AND the target dialect is Bahasa Malaysia.
     """
     answer_language = get_language_name(target_lang)
+    BM_DIALECTS = {"ms", "ms-kelantanese", "ms-kedah", "ms-sabah", "ms-sarawak"}
 
+    # Primary: Gemini 2.0 Flash
     try:
-        answer = await generate_answer_sealion(context, query, answer_language, dialect_code)
-        fallback_state.llm_fallback_active = False
-        return answer, False
-    except Exception as exc:
-        logger.warning(f"SEA-LION v4 failed ({exc}), falling back to Gemini 3 Flash")
-        fallback_state.llm_fallback_active = True
         answer = await generate_answer_gemini(context, query, answer_language, dialect_code)
-        return answer, True
+        fallback_state.llm_fallback_active = False
+        return answer, os.getenv("GEMINI_MODEL_ID", "gemini-3-flash-preview")
+    except Exception as exc:
+        logger.warning(f"Gemini primary failed ({exc}); checking SEA-LION v4 secondary…")
+
+    # Secondary: SEA-LION v4 — BM dialects only, only when configured
+    sealion_configured = bool(os.getenv("SEALION_API_KEY", ""))
+    if sealion_configured and dialect_code in BM_DIALECTS:
+        try:
+            answer = await generate_answer_sealion(context, query, answer_language, dialect_code)
+            fallback_state.llm_fallback_active = True
+            return answer, "sealion-v4"
+        except Exception as exc2:
+            logger.warning(f"SEA-LION v4 BM specialist also failed ({exc2})")
+
+    raise RuntimeError("All configured LLM providers failed.")
 
 
 # Legacy alias for backward compat
@@ -350,12 +379,10 @@ async def extract_steps(answer: str, language: str = "English") -> tuple[list[st
 
     # Layer 2-4: LLM fallback for unstructured prose answers
     try:
-        client = _get_gemini_client()
         prompt = STEP_EXTRACTION_PROMPT.format(answer=answer, language=language)
 
         try:
             text = await _generate_with_fallback_model(
-                client,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.1,
@@ -369,7 +396,6 @@ async def extract_steps(answer: str, language: str = "English") -> tuple[list[st
                 "retrying without mime constraint"
             )
             text = await _generate_with_fallback_model(
-                client,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     temperature=0.1,

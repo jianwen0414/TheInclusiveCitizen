@@ -14,7 +14,7 @@ The UI supports **personas** (Elderly, Migrant Worker, Rural Community) that tun
 | **Backend** | [FastAPI](https://fastapi.tiangolo.com/) (`backend/`) — REST API |
 | **Retrieval** | [Supabase](https://supabase.com/) **pgvector** — chunked PDF embeddings, similarity search |
 | **Embeddings** | Google **Gemini** embedding model (query embedded **without** pre-translation) |
-| **Generation** | **SEA-LION v4** (primary) with **Google Gemini** (Vertex) fallback |
+| **Generation** | **Gemini 2.0 Flash** via Vertex AI (primary, all languages) + **SEA-LION v4** (optional BM specialist fallback) |
 | **Speech** | Google Cloud **Speech-to-Text** and **Text-to-Speech** |
 | **Optional** | Google Cloud **Translation** (advanced) and **NLLB-200** for some language paths; **sentence-transformers** for semantic scoring |
 
@@ -45,7 +45,7 @@ scripts/             Playwright E2E, Chrome CDP helpers, copy-audio scripts
 - **Python** 3.11+ recommended
 - **Supabase** project with pgvector and tables used by ingest/RAG (configure via env)
 - **Google Cloud** project with Vertex AI / Speech / TTS (and optionally Translation), plus application credentials
-- **SEA-LION** API key ([SEA-LION](https://docs.sea-lion.ai/))
+- **SEA-LION** API key ([SEA-LION](https://docs.sea-lion.ai/)) — optional; enables BM specialist fallback
 - Optional: **ffmpeg** (Windows: `winget install ffmpeg`) for voice E2E demos
 
 ---
@@ -111,7 +111,8 @@ Configure these in `backend/.env` (loaded via `python-dotenv`).
 | `SUPABASE_URL` | Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service role key (server-side only) |
 | `GOOGLE_CLOUD_PROJECT` | GCP project for Vertex / Speech / TTS / GenAI |
-| `SEALION_API_KEY` | SEA-LION API key |
+| `GEMINI_MODEL_ID` | Primary LLM model ID (default `gemini-2.0-flash`) |
+| `SEALION_API_KEY` | SEA-LION API key (optional — BM specialist fallback only) |
 | `SEALION_API_BASE_URL` | Optional; default `https://api.sea-lion.ai/v1` |
 | `CORS_ORIGINS` | Comma-separated allowed origins (default `http://localhost:3000`) |
 | `BACKEND_PORT` | API port (default `8000`) |

@@ -31,27 +31,25 @@ async def health_check():
     except Exception as exc:
         statuses["supabase"] = f"error: {exc}"
 
-    # Google Cloud (Vertex AI)
-    try:
-        project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
-        if project:
-            statuses["vertex_ai"] = "configured"
-        else:
-            statuses["vertex_ai"] = "not_configured"
-    except Exception as exc:
-        statuses["vertex_ai"] = f"error: {exc}"
+    # Gemini 2.0 Flash — PRIMARY LLM (via Vertex AI)
+    project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
+    gemini_model = os.getenv("GEMINI_MODEL_ID", "gemini-2.0-flash")
+    statuses["gemini_primary"] = f"configured ({gemini_model})" if project else "not_configured"
 
-    # SEA-LION v4
+    # SEA-LION v4 — OPTIONAL BM specialist fallback
     sealion_key = os.getenv("SEALION_API_KEY", "")
-    statuses["sealion_v4"] = "configured" if sealion_key else "not_configured"
+    statuses["sealion_v4_bm_specialist"] = "configured" if sealion_key else "not_configured (optional)"
 
     # Google Cloud Translation
     statuses["cloud_translation"] = (
-        "configured" if os.getenv("GOOGLE_CLOUD_PROJECT") else "not_configured"
+        "configured" if project else "not_configured"
     )
 
-    overall = "healthy" if all(
-        v in ("ok", "configured") for v in statuses.values()
+    # Healthy when Gemini is configured and Supabase is reachable.
+    # SEA-LION being absent is not a degraded condition.
+    overall = "healthy" if (
+        statuses["supabase"] == "ok"
+        and "configured" in statuses["gemini_primary"]
     ) else "degraded"
 
     return HealthResponse(status=overall, services=statuses)

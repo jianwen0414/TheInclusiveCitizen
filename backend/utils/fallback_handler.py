@@ -44,7 +44,7 @@ async def with_fallback(
 class FallbackChain:
     """
     Manages a chain of fallback services with automatic failover.
-    PRD: SEA-LION v4 → Gemini 3 Flash for LLM
+    PRD: Gemini 2.0 Flash → SEA-LION v4 (optional BM specialist) for LLM
     PRD: Google Cloud TLLM → NLLB-200 for translation
     """
 

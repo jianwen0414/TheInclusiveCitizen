@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir C:\\\\Users\\\\Jian Wen Lee\\\\TheInclusiveCitizen:*)",
+      "Bash(\"C:/Users/Jian Wen Lee/TheInclusiveCitizen/.venv/Scripts/python.exe\" -m pip index versions genkit)",
+      "Bash(\"C:/Users/Jian Wen Lee/TheInclusiveCitizen/.venv/Scripts/python.exe\" -m pip index versions genkit-vertexai)",
+      "Bash(\"C:/Users/Jian Wen Lee/TheInclusiveCitizen/.venv/Scripts/python.exe\" -m pip index versions genkit-google-cloud-ai)",
+      "Bash(\"C:/Users/Jian Wen Lee/TheInclusiveCitizen/.venv/Scripts/pip.exe\" index versions genkit)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:firebase.google.com)"
+    ]
+  }
+}

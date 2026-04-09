@@ -27,9 +27,10 @@ class Source(BaseModel):
 
 class QueryResponse(BaseModel):
     answer: str = Field(description="Translated + simplified answer in user's language")
-    answer_bm: str = Field(description="Intermediate BM answer from SEA-LION v4")
+    answer_bm: str = Field(description="Intermediate BM answer (before simplification)")
     original_text: str = Field(description="Raw retrieved BM text from government document")
     translation_model: str = Field(description="'google_tllm' or 'nllb200'")
+    llm_model: str = Field(description="Model that generated the answer, e.g. 'gemini-2.0-flash' or 'sealion-v4'")
     semantic_score: float = Field(description="Cross-lingual cosine similarity 0.0–1.0")
     readability_grade: float = Field(description="Flesch-Kincaid grade level in target language")
     sources: list[Source]
