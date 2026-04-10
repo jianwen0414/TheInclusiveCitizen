@@ -1,0 +1,20 @@
+# Installed modules — reinstalled fresh inside Docker
+node_modules/
+
+# Environment secrets — never bake into the image
+.env
+.env.*
+
+# Compiled output from previous local builds — Docker rebuilds from src/
+# (the builder stage compiles src/ → lib/ inside Docker)
+lib/
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE and OS metadata
+.idea/
+.vscode/
+*.DS_Store
+Thumbs.db

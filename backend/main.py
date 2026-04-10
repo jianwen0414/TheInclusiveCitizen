@@ -54,16 +54,18 @@ app.add_middleware(
 
 # ── Router registration (PRD Section 7.1, Table 10) ──────
 
-from routers.health import router as health_router        # noqa: E402
-from routers.ingest import router as ingest_router        # noqa: E402
-from routers.query import router as query_router          # noqa: E402
-from routers.steps import router as steps_router          # noqa: E402
-from routers.translate import router as translate_router   # noqa: E402
-from routers.transcribe import router as transcribe_router # noqa: E402
-from routers.synthesise import router as synthesise_router # noqa: E402
+from routers.health import router as health_router           # noqa: E402
+from routers.ingest import router as ingest_router           # noqa: E402
+from routers.pipeline import router as pipeline_router       # noqa: E402
+from routers.query import router as query_router             # noqa: E402
+from routers.steps import router as steps_router             # noqa: E402
+from routers.translate import router as translate_router     # noqa: E402
+from routers.transcribe import router as transcribe_router   # noqa: E402
+from routers.synthesise import router as synthesise_router   # noqa: E402
 
 app.include_router(health_router)
 app.include_router(ingest_router)
+app.include_router(pipeline_router)
 app.include_router(query_router)
 app.include_router(steps_router)
 app.include_router(translate_router)

@@ -1,0 +1,33 @@
+# Installed modules — reinstalled fresh inside Docker
+node_modules/
+
+# Previous build output
+.next/
+
+# Environment files — NEXT_PUBLIC_ vars must be passed as --build-arg, not .env
+.env
+.env.*
+.env.local
+.env.production
+
+# Backend and infra directories — not needed for the frontend build
+backend/
+genkit-server/
+infra/
+seed_docs/
+
+# Documentation and scripts (reduce context size)
+docs/
+scripts/
+*.md
+GENKIT_NOTES.md
+
+# IDE and OS metadata
+.idea/
+.vscode/
+*.DS_Store
+Thumbs.db
+
+# Git metadata
+.git/
+.gitignore

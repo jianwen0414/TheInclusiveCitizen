@@ -1,0 +1,37 @@
+steps:
+  # Step 1: Build the Genkit server Docker image.
+  # Build context is genkit-server/ so only TS source is sent to the daemon.
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - '--tag=gcr.io/$PROJECT_ID/inclusive-citizen-genkit:$COMMIT_SHA'
+      - '--tag=gcr.io/$PROJECT_ID/inclusive-citizen-genkit:latest'
+      - '--cache-from=gcr.io/$PROJECT_ID/inclusive-citizen-genkit:latest'
+      - '.'
+    dir: genkit-server
+
+  # Step 2: Push both tags to Google Artifact Registry.
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - push
+      - '--all-tags'
+      - 'gcr.io/$PROJECT_ID/inclusive-citizen-genkit'
+
+  # Step 3: Deploy (or update) the Cloud Run service declaratively.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - services
+      - replace
+      - genkit-server/cloudrun.yaml
+      - '--region=us-central1'
+    env:
+      - 'COMMIT_SHA=$COMMIT_SHA'
+
+images:
+  - 'gcr.io/$PROJECT_ID/inclusive-citizen-genkit:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/inclusive-citizen-genkit:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

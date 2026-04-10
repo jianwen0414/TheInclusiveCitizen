@@ -1,0 +1,38 @@
+# Python cache and bytecode
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment secrets — never bake into the image
+.env
+.env.*
+
+# Model weight files — load at runtime via NLLB_MODEL_PATH (see Dockerfile)
+*.bin
+*.pt
+*.ckpt
+*.safetensors
+*.tar.gz
+*.h5
+
+# Development and test artefacts
+tests/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Seed documents — not needed at runtime
+seed_docs/
+
+# IDE and OS metadata
+.idea/
+.vscode/
+*.DS_Store
+Thumbs.db

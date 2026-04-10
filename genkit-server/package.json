@@ -1,0 +1,24 @@
+{
+  "name": "inclusive-citizen-genkit",
+  "version": "1.0.0",
+  "description": "Genkit TypeScript orchestration layer for The Inclusive Citizen",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node lib/index.js"
+  },
+  "dependencies": {
+    "genkit": "^1.0.0",
+    "@genkit-ai/vertexai": "^1.0.0",
+    "express": "^4.18.0",
+    "zod": "^3.22.0",
+    "dotenv": "^16.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "tsx": "^4.0.0",
+    "@types/express": "^4.17.0",
+    "@types/node": "^20.0.0"
+  }
+}

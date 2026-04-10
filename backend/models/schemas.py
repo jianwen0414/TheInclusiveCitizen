@@ -85,6 +85,7 @@ class IngestResponse(BaseModel):
     status: str
     doc_name: str
     chunks_created: int
+    indexing_note: str | None = None  # explains async Vertex AI Search indexing delay
 
 
 # ── /api/extract-steps ───────────────────────────────────
@@ -104,3 +105,78 @@ class ExtractStepsResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     services: dict[str, str]
+
+
+# ── /api/detect-dialect (internal pipeline endpoint) ────
+
+class DetectDialectRequest(BaseModel):
+    query: str
+    language_hint: str | None = None
+
+
+class DetectDialectResponse(BaseModel):
+    detected_language: str
+    target_lang: str
+
+
+# ── /api/retrieve (internal pipeline endpoint) ──────────
+
+class RetrieveRequest(BaseModel):
+    query: str
+    top_k: int = 6
+    threshold: float = 0.25
+
+
+class RetrievedChunkSchema(BaseModel):
+    doc_name: str
+    doc_type: str | None = None
+    page_number: int | None = None
+    chunk_text: str
+    similarity: float
+    metadata: dict | None = None
+
+
+class RetrieveResponse(BaseModel):
+    chunks: list[RetrievedChunkSchema]
+    context: str
+    original_chunk_text: str
+    confidence: float
+
+
+# ── /api/generate (internal pipeline endpoint) ──────────
+
+class GenerateRequest(BaseModel):
+    context: str
+    query: str
+    target_lang: str = "ms"
+    dialect_code: str = "ms"
+
+
+class GenerateResponse(BaseModel):
+    answer: str
+    llm_model: str
+
+
+# ── /api/simplify (internal pipeline endpoint) ──────────
+
+class SimplifyRequest(BaseModel):
+    text: str
+    language: str = "English"
+    conservative: bool = False
+    enrich_hijri: bool = False
+
+
+class SimplifyResponse(BaseModel):
+    simplified_text: str
+    readability_grade: float
+
+
+# ── /api/score (internal pipeline endpoint) ─────────────
+
+class ScoreRequest(BaseModel):
+    original_bm_text: str
+    translated_simplified_text: str
+
+
+class ScoreResponse(BaseModel):
+    score: float

@@ -1,0 +1,40 @@
+steps:
+  # Step 1: Build the backend Docker image.
+  # The build context is the backend/ subdirectory so only backend sources are
+  # sent to the Docker daemon (keeps the context small).
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - '--tag=gcr.io/$PROJECT_ID/inclusive-citizen-backend:$COMMIT_SHA'
+      - '--tag=gcr.io/$PROJECT_ID/inclusive-citizen-backend:latest'
+      - '--cache-from=gcr.io/$PROJECT_ID/inclusive-citizen-backend:latest'
+      - '.'
+    dir: backend
+
+  # Step 2: Push both tags to Google Artifact Registry.
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - push
+      - '--all-tags'
+      - 'gcr.io/$PROJECT_ID/inclusive-citizen-backend'
+
+  # Step 3: Deploy (or update) the Cloud Run service using the declarative
+  # cloudrun.yaml specification.  The image tag is passed via substitution so
+  # cloudrun.yaml stays generic.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - run
+      - services
+      - replace
+      - backend/cloudrun.yaml
+      - '--region=us-central1'
+    env:
+      - 'COMMIT_SHA=$COMMIT_SHA'
+
+images:
+  - 'gcr.io/$PROJECT_ID/inclusive-citizen-backend:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/inclusive-citizen-backend:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

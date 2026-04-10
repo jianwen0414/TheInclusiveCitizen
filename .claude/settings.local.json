@@ -7,7 +7,11 @@
       "Bash(\"C:/Users/Jian Wen Lee/TheInclusiveCitizen/.venv/Scripts/python.exe\" -m pip index versions genkit-google-cloud-ai)",
       "Bash(\"C:/Users/Jian Wen Lee/TheInclusiveCitizen/.venv/Scripts/pip.exe\" index versions genkit)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:firebase.google.com)"
+      "WebFetch(domain:firebase.google.com)",
+      "WebFetch(domain:genkit.dev)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:pypi.org)",
+      "Bash(node -e \"const g = require\\('C:/Users/Jian Wen Lee/TheInclusiveCitizen/genkit-server/node_modules/genkit'\\); console.log\\(Object.keys\\(g\\).filter\\(k => k.toLowerCase\\(\\).includes\\('flow'\\) || k.toLowerCase\\(\\).includes\\('tool'\\) || k === 'genkit'\\)\\)\")"
     ]
   }
 }

@@ -1,0 +1,64 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: inclusive-citizen-genkit
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: '0'
+        autoscaling.knative.dev/maxScale: '10'
+    spec:
+      # ── Authentication for Google Cloud APIs ─────────────────────────────────
+      #
+      # OPTION A — Workload Identity Federation (recommended, no key file needed)
+      #   Assign the Cloud Run service account (inclusive-citizen-sa) roles for
+      #   Vertex AI and other APIs via IAM (done in infra/setup.sh).
+      #   Cloud Run automatically provides OIDC credentials to the runtime via
+      #   the metadata server; the Google Auth libraries discover them without
+      #   any GOOGLE_APPLICATION_CREDENTIALS setting.
+      #   This is the default when serviceAccountName is set and no credential
+      #   env var is specified.
+      #
+      # OPTION B — Service account key file (legacy, avoid if possible)
+      #   Store the JSON key in Secret Manager, mount it as a volume, and set:
+      #     GOOGLE_APPLICATION_CREDENTIALS: /secrets/sa-key/sa-key.json
+      #   See: https://cloud.google.com/run/docs/configuring/secrets#mounting-secrets
+      #
+      # This file uses Option A — no credential env vars are set.
+      # ─────────────────────────────────────────────────────────────────────────
+      serviceAccountName: inclusive-citizen-sa@PROJECT_ID.iam.gserviceaccount.com
+
+      timeoutSeconds: 120
+      containerConcurrency: 80
+
+      containers:
+        - image: gcr.io/PROJECT_ID/inclusive-citizen-genkit:COMMIT_SHA
+          ports:
+            - containerPort: 8080
+
+          resources:
+            limits:
+              # 1 GiB is sufficient — the Genkit server runs no ML models.
+              memory: 1Gi
+              cpu: '1'
+
+          env:
+            # ── Non-sensitive configuration ──────────────────────────────────
+            - name: GOOGLE_CLOUD_PROJECT
+              value: PROJECT_ID          # replaced by deploy_genkit.sh at deploy time
+
+            - name: PORT
+              value: '8080'
+
+            # FASTAPI_BASE_URL is set as a runtime env var (not baked into the
+            # image) so the Genkit server can be redeployed independently of the
+            # backend.  deploy_genkit.sh injects this value after the backend URL
+            # is known.  To update it without a full redeploy:
+            #   gcloud run services update inclusive-citizen-genkit \
+            #     --region=us-central1 \
+            #     --set-env-vars="FASTAPI_BASE_URL=https://new-backend-url.run.app"
+            - name: FASTAPI_BASE_URL
+              value: FASTAPI_BASE_URL_PLACEHOLDER

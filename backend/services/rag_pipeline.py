@@ -1,20 +1,19 @@
 """
 RAG Pipeline Service
 PRD Section 6.3 — Online Query Phase:
-  1. Query embedded directly using gemini-embedding-001 (NO pre-translation)
-  2. Top-k document chunks retrieved from Supabase pgvector by cosine similarity
+  1. Query sent directly to Vertex AI Search (no embedding step — Discovery Engine handles it)
+  2. Top-k document chunks retrieved from Discovery Engine by relevance score
   3. Retrieved context + prompt passed to LLM for answer generation
+
+Replaces the old gemini-embedding-001 + Supabase pgvector retrieval path.
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 
-from supabase import create_client, Client
-
-from services.document_ingestor import embed_query
+from services.vertex_search_retriever import retrieve_context
 
 logger = logging.getLogger(__name__)
 
@@ -29,116 +28,58 @@ class RetrievedChunk:
     metadata: dict | None
 
 
-def _get_supabase() -> Client:
-    return create_client(
-        os.getenv("SUPABASE_URL", ""),
-        os.getenv("SUPABASE_SERVICE_ROLE_KEY", ""),
-    )
-
-
 async def retrieve_relevant_chunks(
     query: str,
     top_k: int = 6,
     threshold: float = 0.25,
 ) -> list[RetrievedChunk]:
     """
-    Embed the query and retrieve the top-k most relevant document chunks.
+    Retrieve top-k most relevant document chunks from Vertex AI Search.
 
     Design decisions:
-    - top_k=6: gives the LLM enough cross-page context (eligibility criteria
-      often spans multiple pages; 3 was too few).
-    - threshold=0.25: gemini-embedding-001 cross-lingual cosine scores for
-      zh/en or ms/en pairs typically range 0.30–0.65 for relevant matches.
-      0.25 catches near-misses without letting in junk.
-    - fetch_count=50: fetch enough rows so the threshold filter still has a
-      good pool to select from, especially with a 6-document knowledge base.
-    - PRD constraint #3: query is NEVER pre-translated before embedding.
-
-    Logs every retrieved candidate with its score so retrieval quality can
-    be inspected at a glance without guessing.
+    - No embedding step: Discovery Engine handles query embedding internally.
+    - top_k=6: unchanged from pgvector implementation (enough cross-page context).
+    - threshold=0.25: applied to Discovery Engine relevance_score (0.0–1.0).
+      Note: Discovery Engine relevance_score is not cosine similarity — monitor
+      real score distributions after deployment and tune this value if needed.
+    - relevance_score maps to the similarity field for downstream compatibility
+      (semantic scorer, source citation, confidence field in QueryResponse).
+    - metadata carries source_url (GCS URI) and doc_type for citation building.
+    - PRD constraint #3: query is NEVER pre-translated (Discovery Engine is multilingual).
     """
-    # Embed the raw user query (any language — gemini-embedding-001 is multilingual)
-    logger.info(f"[RAG] Embedding query: '{query[:100]}'")
-    query_embedding = embed_query(query)
+    logger.info(f"[RAG] Querying Vertex AI Search: '{query[:100]}'")
 
-    # Fetch a large enough candidate pool from pgvector
-    supabase = _get_supabase()
-    fetch_count = 50  # fixed pool — large enough to cover all chunks in a ~6-doc KB
+    raw_results = await retrieve_context(query, top_k=top_k, threshold=threshold)
 
-    result = supabase.rpc(
-        "match_documents",
-        {
-            "query_embedding": query_embedding,
-            "match_count": fetch_count,
-            "filter": {},
-        },
-    ).execute()
-
-    all_rows = result.data or []
-    logger.info(f"[RAG] Supabase returned {len(all_rows)} candidate rows")
-
-    # Log the full ranked list so we can see exactly what scores look like
-    logger.info("[RAG] ── Candidate ranking (all rows) ──────────────────────")
-    for i, row in enumerate(all_rows[:15], 1):  # log top-15 at most
-        sim = float(row.get("similarity", 0))
-        doc = row.get("doc_name", "?")
-        pg = row.get("page_number", "?")
-        preview = (row.get("chunk_text") or "")[:80].replace("\n", " ")
-        logger.info(f"[RAG]  {i:>2}. sim={sim:.4f}  {doc} p{pg}  '{preview}…'")
-
-    if len(all_rows) > 15:
-        logger.info(f"[RAG]  … ({len(all_rows) - 15} more rows not shown)")
-    logger.info("[RAG] ────────────────────────────────────────────────────────")
-
-    # Apply threshold and take top_k
     chunks: list[RetrievedChunk] = []
-    below_threshold: list[tuple[float, str, int]] = []
-
-    for row in all_rows:
-        similarity = float(row.get("similarity", 0))
-        doc = row.get("doc_name", "?")
-        pg = row.get("page_number", "?")
-
-        if similarity >= threshold:
-            chunks.append(
-                RetrievedChunk(
-                    doc_name=doc,
-                    doc_type=row.get("doc_type"),
-                    page_number=row.get("page_number"),
-                    chunk_text=row["chunk_text"],
-                    similarity=similarity,
-                    metadata=row.get("metadata"),
-                )
+    for r in raw_results:
+        chunks.append(
+            RetrievedChunk(
+                doc_name=r["doc_name"],
+                doc_type=r.get("doc_type"),
+                page_number=r.get("page_number"),
+                chunk_text=r["chunk_text"],
+                similarity=r["relevance_score"],  # Discovery Engine score → similarity
+                metadata={
+                    "source_url": r.get("source_url"),
+                    "doc_type": r.get("doc_type"),
+                },
             )
-        else:
-            below_threshold.append((similarity, doc, pg))
-
-    # Rows already arrive sorted by similarity DESC; slice to top_k
-    chunks = chunks[:top_k]
-
-    # Summary log
-    if chunks:
-        logger.info(
-            f"[RAG] Selected {len(chunks)}/{len(all_rows)} chunks "
-            f"(threshold={threshold}, top_k={top_k}) | "
-            f"scores: {[f'{c.similarity:.3f}' for c in chunks]}"
         )
+
+    if chunks:
+        scores = [f"{c.similarity:.3f}" for c in chunks]
+        logger.info(f"[RAG] {len(chunks)} chunks retrieved | scores: {scores}")
         for i, c in enumerate(chunks, 1):
             preview = c.chunk_text[:120].replace("\n", " ")
-            logger.info(f"[RAG]  ✓ chunk {i}: {c.doc_name} p{c.page_number} "
-                        f"sim={c.similarity:.4f} | '{preview}…'")
+            logger.info(
+                f"[RAG]  ✓ chunk {i}: {c.doc_name} p{c.page_number} "
+                f"sim={c.similarity:.4f} | '{preview}…'"
+            )
     else:
         logger.warning(
-            f"[RAG] 0 chunks above threshold={threshold}. "
-            f"Top row score was {float(all_rows[0].get('similarity', 0)):.4f} "
-            f"({all_rows[0].get('doc_name', '?')} p{all_rows[0].get('page_number', '?')})"
-            if all_rows else "[RAG] 0 chunks — Supabase returned empty result"
+            f"[RAG] 0 chunks returned from Vertex AI Search for: '{query[:80]}'"
         )
-        if below_threshold:
-            logger.warning(
-                f"[RAG] Rows below threshold: "
-                + ", ".join(f"{s:.3f}/{d}p{p}" for s, d, p in below_threshold[:5])
-            )
 
     return chunks
 

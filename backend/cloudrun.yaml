@@ -1,0 +1,89 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: inclusive-citizen-backend
+  # Cloud Run region is set by the gcloud deploy command, not here.
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        # Scale to zero when idle to minimise cost.
+        autoscaling.knative.dev/minScale: '0'
+        autoscaling.knative.dev/maxScale: '10'
+        # 2 vCPUs — required for torch inference (NLLB-200, sentence-transformers).
+        run.googleapis.com/cpu-throttling: 'false'
+    spec:
+      # Shared service account with least-privilege IAM roles (created by infra/setup.sh).
+      serviceAccountName: inclusive-citizen-sa@PROJECT_ID.iam.gserviceaccount.com
+
+      # Generous timeout for first-request model warm-up.
+      timeoutSeconds: 120
+
+      # Up to 80 concurrent requests per instance.
+      containerConcurrency: 80
+
+      containers:
+        - image: gcr.io/PROJECT_ID/inclusive-citizen-backend:COMMIT_SHA
+          # Cloud Run injects PORT=8080; the CMD in the Dockerfile reads it.
+          ports:
+            - containerPort: 8080
+
+          resources:
+            limits:
+              # 4 GiB RAM for in-process ML models (sentence-transformers, spaCy).
+              memory: 4Gi
+              cpu: '2'
+
+          env:
+            # ── Non-sensitive configuration ──────────────────────────────────
+            - name: GOOGLE_CLOUD_PROJECT
+              value: PROJECT_ID          # replaced by deploy_backend.sh at deploy time
+
+            - name: VERTEX_SEARCH_LOCATION
+              value: global
+
+            # ── Sensitive values — sourced from Secret Manager ───────────────
+            # Format: projects/PROJECT_NUMBER/secrets/SECRET_NAME/versions/latest
+            # The service account must have roles/secretmanager.secretAccessor.
+
+            - name: SEALION_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: SEALION_API_KEY
+                  key: latest
+
+            - name: SUPABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: SUPABASE_URL
+                  key: latest
+
+            - name: SUPABASE_SERVICE_ROLE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: SUPABASE_SERVICE_ROLE_KEY
+                  key: latest
+
+            - name: VERTEX_SEARCH_DATA_STORE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: VERTEX_SEARCH_DATA_STORE_ID
+                  key: latest
+
+            - name: VERTEX_SEARCH_ENGINE_ID
+              valueFrom:
+                secretKeyRef:
+                  name: VERTEX_SEARCH_ENGINE_ID
+                  key: latest
+
+            - name: GCS_BUCKET_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: GCS_BUCKET_NAME
+                  key: latest
+
+            # ── Note: GENKIT_SERVER_URL is intentionally absent ──────────────
+            # The backend NEVER calls the Genkit server.
+            # Data flow is: frontend → Genkit server → backend (not vice-versa).
