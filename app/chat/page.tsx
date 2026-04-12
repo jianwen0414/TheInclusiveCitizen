@@ -12,6 +12,39 @@ import { Message } from "@/components/MessageBubble"
 import { cn } from "@/lib/utils"
 import { queryBackend, extractStepsApi } from "@/lib/api"
 import { getLanguageName } from "@/components/MessageBubble"
+import { FloodBackground } from "@/components/FloodBackground"
+import { FloodAlertBanner } from "@/components/FloodAlertBanner"
+
+// Client-side flood keyword detection — mirrors backend/routers/flood.py.
+// Used for optimistic UI: activates the WebGL background immediately on submit
+// before the backend round-trip completes (~30s). The backend result overrides
+// this when it arrives.
+const FLOOD_KW = [
+  "banjir","kebanjiran","banjir kilat","banjir lumpur","banjir bandang",
+  "banjir besar","banjir bah","air bah","air naik","air pasang","air meluap",
+  "limpah","melimpah","meluap","limpahan",
+  "mangsa banjir","kawasan banjir","bencana banjir",
+  "pusat pemindahan","pusat evakuasi","tempat perlindungan banjir",
+  "pusat relief","kem bantuan","evakuasi","dipindahkan","pemindahan",
+  "bantuan banjir","bantuan mangsa","mangsa bencana",
+  "nadma","jps","jkm","apam",
+  "amaran banjir","paras air bahaya","paras banjir",
+  "flood","flooding","flooded","floods","flash flood",
+  "inundation","inundated","submerged","waterlogged",
+  "evacuate","evacuation","evacuated","evacuation centre","evacuation center",
+  "flood relief","flood aid","flood emergency","flood warning","flood alert",
+  "flood victim","flood damage","flood claim","flood assistance","flood recovery",
+  "flood preparedness","flood risk","flood prone",
+  "water level rising","river overflow","riverbank burst",
+  "dam overflow","dam burst",
+]
+const FLOOD_EXCL = [
+  "banjir wang","banjir duit","banjir rezeki","banjir idea","banjir hadiah","banjir maklumat",
+]
+function clientDetectFlood(query: string): boolean {
+  const t = query.toLowerCase()
+  return FLOOD_KW.some(kw => t.includes(kw)) && !FLOOD_EXCL.some(ex => t.includes(ex))
+}
 
 const PROCESSING_STEPS = [
   "Detecting Language...",
@@ -40,6 +73,8 @@ export default function Home() {
   const [showSourcePanel, setShowSourcePanel] = useState(false)
   const [showShareModal, setShowShareModal] = useState(false)
   const [showMobileSidebar, setShowMobileSidebar] = useState(false)
+  const [floodMode, setFloodMode] = useState(false)
+  const [situationType, setSituationType] = useState<string | null>(null)
   const stepTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const startProgressAnimation = useCallback(() => {
@@ -72,6 +107,12 @@ export default function Home() {
     }
     setMessages((prev) => [...prev, userMessage])
 
+    // Optimistic flood mode: activate WebGL background immediately on submit
+    // so the UI transitions before the backend responds.
+    if (clientDetectFlood(content)) {
+      setFloodMode(true)
+    }
+
     startProgressAnimation()
 
     try {
@@ -87,10 +128,25 @@ export default function Home() {
       const langName = getLanguageName(langCode)
       setDetectedLanguage(langName)
 
+      // Update flood mode state — resets automatically when response.flood_mode is false
+      setFloodMode(response.flood_mode ?? false)
+      setSituationType(response.situation_type ?? null)
+
       const translationModel: "google_tllm" | "nllb_200" | undefined =
         response.translation_model === "google_tllm" ? "google_tllm"
         : response.translation_model === "nllb200" ? "nllb_200"
         : undefined
+
+      // Inject triage question bubble before the main AI answer when in flood mode
+      if (response.flood_mode && response.triage_message) {
+        const triageMsg: Message = {
+          id: (Date.now() + 0.5).toString(),
+          type: "ai",
+          content: response.triage_message,
+          isTriageQuestion: true,
+        }
+        setMessages((prev) => [...prev, triageMsg])
+      }
 
       const msgId = (Date.now() + 1).toString()
       const aiMessage: Message = {
@@ -170,10 +226,16 @@ export default function Home() {
 
   return (
     <div className={cn(
-      "h-screen flex flex-col",
+      "h-screen flex flex-col relative overflow-hidden",
+      floodMode && "bg-[#020b18]",
       persona === "elderly" && "mode-elderly"
     )}>
-      <div className="flex-1 flex overflow-hidden">
+      {/* WebGL flood background — absolute inside root div so it's unaffected
+          by the body's white background. Root div is dark in flood mode so the
+          canvas is visible as soon as it paints its first frame. */}
+      {floodMode && <FloodBackground key="flood-bg" onUnmount={() => {}} />}
+
+      <div className="flex-1 flex overflow-hidden relative z-[2]">
         {/* Mobile header */}
         <div className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3 bg-sidebar-bg border-b border-border-subtle">
           <Button
@@ -272,7 +334,11 @@ export default function Home() {
         </aside>
 
         {/* Main content area */}
-        <main className="flex-1 flex flex-col min-w-0 pt-14 lg:pt-0">
+        <main className={cn(
+          "flex-1 flex flex-col min-w-0 pt-14 lg:pt-0",
+          "transition-colors duration-[400ms]",
+          floodMode ? "bg-transparent" : ""
+        )}>
           {messages.length === 0 ? (
             /* Welcome screen - Gemini style */
             <div className="flex-1 flex flex-col items-center justify-center px-6 pb-32">
@@ -343,15 +409,19 @@ export default function Home() {
             </div>
           ) : (
             /* Chat mode */
-            <ChatPanel
-              messages={messages}
-              isProcessing={isProcessing}
-              processingStep={processingStep}
-              onSendMessage={handleSendMessage}
-              onViewSource={handleViewSource}
-              onShare={handleShare}
-              persona={persona}
-            />
+            <>
+              {floodMode && <FloodAlertBanner />}
+              <ChatPanel
+                messages={messages}
+                isProcessing={isProcessing}
+                processingStep={processingStep}
+                onSendMessage={handleSendMessage}
+                onViewSource={handleViewSource}
+                onShare={handleShare}
+                persona={persona}
+                floodMode={floodMode}
+              />
+            </>
           )}
         </main>
 

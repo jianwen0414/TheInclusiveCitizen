@@ -92,7 +92,10 @@ async def retrieve_endpoint(request: RetrieveRequest):
     """
     try:
         chunks = await retrieve_relevant_chunks(
-            request.query, top_k=request.top_k, threshold=request.threshold
+            request.query,
+            top_k=request.top_k,
+            threshold=request.threshold,
+            doc_type_filter=request.doc_type_filter,
         )
         if not chunks:
             return RetrieveResponse(

@@ -14,6 +14,8 @@ import "./ai.js"; // initialise Genkit + register plugins before importing tools
 // Import tools so ai.defineTool() calls fire before the flow is defined
 import "./tools/transcribeAudio.js";
 import "./tools/detectDialect.js";
+import "./tools/detectFloodIntent.js";
+import "./tools/floodTriage.js";
 import "./tools/retrieveDocuments.js";
 import "./tools/generateBmAnswer.js";
 import "./tools/translateAnswer.js";

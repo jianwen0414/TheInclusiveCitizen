@@ -35,6 +35,9 @@ export interface QueryResponse {
   steps?: string[] | null;
   step_icons?: string[] | null;
   disclaimer?: string | null;
+  flood_mode?: boolean;
+  situation_type?: string | null;
+  triage_message?: string | null;
 }
 
 export interface TranscribeResponse {

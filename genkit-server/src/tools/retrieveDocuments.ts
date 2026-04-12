@@ -21,6 +21,7 @@ export const RetrieveDocumentsInputSchema = z.object({
   query: z.string(),
   top_k: z.number().default(6),
   threshold: z.number().default(0.25),
+  doc_type_filter: z.array(z.string()).nullable().optional(),
 });
 
 export const RetrieveDocumentsOutputSchema = z.object({

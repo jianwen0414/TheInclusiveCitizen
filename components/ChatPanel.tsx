@@ -20,6 +20,7 @@ interface ChatPanelProps {
   showBackupAI?: boolean
   showOfflineTranslation?: boolean
   isWelcomeMode?: boolean
+  floodMode?: boolean
 }
 
 const processingSteps = [
@@ -40,7 +41,8 @@ export function ChatPanel({
   onViewSource,
   onShare,
   persona,
-  isWelcomeMode = false
+  isWelcomeMode = false,
+  floodMode = false,
 }: ChatPanelProps) {
   const [inputValue, setInputValue] = useState("")
   const [isRecording, setIsRecording] = useState(false)
@@ -188,18 +190,19 @@ export function ChatPanel({
   )
 
   return (
-    <div className="flex flex-col h-full bg-page-bg">
+    <div className={cn("flex flex-col h-full", floodMode ? "bg-transparent" : "bg-page-bg")}>
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-4 py-6">
           <div className="flex flex-col gap-6">
             {messages.map((message) => (
-              <MessageBubble
-                key={message.id}
-                message={message}
-                onViewSource={() => onViewSource(message)}
-                onShare={() => onShare(message)}
-              />
+              <div key={message.id}>
+                <MessageBubble
+                  message={message}
+                  onViewSource={() => onViewSource(message)}
+                  onShare={() => onShare(message)}
+                />
+              </div>
             ))}
             
             {/* Processing indicator with step pills */}

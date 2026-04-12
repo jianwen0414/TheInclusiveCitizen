@@ -145,6 +145,7 @@ Frontend (e.g. `.env.local`):
 | Variable | Purpose |
 |----------|---------|
 | `NEXT_PUBLIC_API_BASE_URL` | Backend base URL (default `http://localhost:8000`) |
+| `GOOGLE_MAPS_API_KEY` | Google Maps Static API key — used **server-side only** by the `/api/static-map` proxy route to render map images in Government Office Cards; the key never reaches the browser. Card degrades gracefully (shows coordinates) without it. |
 
 Use **Google Application Default Credentials** (or the method your team uses) so the backend can call Vertex AI and other GCP APIs.
 

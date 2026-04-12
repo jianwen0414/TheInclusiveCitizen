@@ -11,6 +11,8 @@ import { z } from "zod";
 import { ai } from "../ai.js";
 import { transcribeAudioTool } from "../tools/transcribeAudio.js";
 import { detectDialectTool } from "../tools/detectDialect.js";
+import { detectFloodIntentTool } from "../tools/detectFloodIntent.js";
+import { floodTriageTool } from "../tools/floodTriage.js";
 import { retrieveDocumentsTool, RetrievedChunk } from "../tools/retrieveDocuments.js";
 import { generateBmAnswerTool } from "../tools/generateBmAnswer.js";
 import { translateAnswerTool } from "../tools/translateAnswer.js";
@@ -86,6 +88,9 @@ export const QueryFlowOutputSchema = z.object({
   steps: z.array(z.string()).nullable().optional(),
   step_icons: z.array(z.string()).nullable().optional(),
   disclaimer: z.string().nullable().optional(),
+  flood_mode: z.boolean().optional(),
+  situation_type: z.string().nullable().optional(),
+  triage_message: z.string().nullable().optional(),
 });
 
 export type QueryFlowInput = z.infer<typeof QueryFlowInputSchema>;
@@ -105,6 +110,13 @@ export const inclusiveCitizenQueryFlow = ai.defineFlow(
     let language = input.language ?? null;
     let disclaimer: string | null = null;
 
+    // ── Flood mode state ─────────────────────────────────────────────────────
+    let docTypeFilter: string[] | null = null;
+    let floodSystemContext = "";
+    let floodMode = false;
+    let triageMessage: string | null = null;
+    let floodSituationType: string | null = null;
+
     // ── Step 0 (optional): Transcribe audio ─────────────────────────────────
     if (input.audio_base64) {
       sendChunk?.("step:transcribe_audio");
@@ -116,6 +128,36 @@ export const inclusiveCitizenQueryFlow = ai.defineFlow(
       if (!language) language = r.detected_language;
     }
 
+    // ── Step 0b: Flood intent detection ─────────────────────────────────────
+    // Runs before dialect detection using input.language as a hint.
+    // Flood intent classification is language-agnostic so this is sufficient.
+    // Failure is non-fatal — the pipeline continues as a non-flood query.
+    sendChunk?.("step:detect_flood_intent");
+    try {
+      const floodResult = await detectFloodIntentTool({
+        query,
+        detected_language: input.language ?? "ms",
+      });
+      if (floodResult.is_flood_related && floodResult.situation_type) {
+        floodMode = true;
+        floodSituationType = floodResult.situation_type;
+        const triage = await floodTriageTool({
+          situation_type: floodResult.situation_type as
+            | "active_emergency"
+            | "post_flood_relief"
+            | "general_info",
+        });
+        docTypeFilter = triage.retrieval_filter;
+        floodSystemContext = triage.system_context;
+        // TODO(future): support a full conversation turn — await explicit user
+        // confirmation before continuing. For hackathon scope the flow continues
+        // immediately and surfaces the triage prompt as an informational message.
+        triageMessage = triage.triage_prompt || null;
+      }
+    } catch {
+      // Flood detection failure is non-fatal — continue as non-flood query
+    }
+
     // ── Step 1: Detect dialect ───────────────────────────────────────────────
     sendChunk?.("step:detect_dialect");
     const dr = await detectDialectTool({ query, language_hint: language });
@@ -125,7 +167,10 @@ export const inclusiveCitizenQueryFlow = ai.defineFlow(
 
     // ── Steps 2–3: RAG retrieval ─────────────────────────────────────────────
     sendChunk?.("step:retrieve_documents");
-    const rag = await retrieveDocumentsTool({ query });
+    const rag = await retrieveDocumentsTool({
+      query,
+      doc_type_filter: docTypeFilter,
+    });
 
     if (rag.chunks.length === 0) {
       return {
@@ -144,13 +189,21 @@ export const inclusiveCitizenQueryFlow = ai.defineFlow(
         detected_language: detectedLanguage,
         confidence: 0.0,
         disclaimer: "No relevant documents found.",
+        flood_mode: floodMode,
+        situation_type: floodSituationType,
+        triage_message: triageMessage,
       };
     }
 
     // ── Step 4: LLM answer generation ───────────────────────────────────────
     sendChunk?.("step:generate_answer");
+    // Prepend flood system context to RAG context when in flood mode so the
+    // LLM prioritises emergency safety or relief assistance appropriately.
+    const contextForLlm = floodSystemContext
+      ? `EMERGENCY CONTEXT: ${floodSystemContext}\n\n${rag.context}`
+      : rag.context;
     const llm = await generateBmAnswerTool({
-      context: rag.context,
+      context: contextForLlm,
       query,
       target_lang: targetLang,
       dialect_code: dialectCode,
@@ -256,6 +309,9 @@ export const inclusiveCitizenQueryFlow = ai.defineFlow(
       steps: null,
       step_icons: null,
       disclaimer,
+      flood_mode: floodMode,
+      situation_type: floodSituationType,
+      triage_message: triageMessage,
     };
   }
 );

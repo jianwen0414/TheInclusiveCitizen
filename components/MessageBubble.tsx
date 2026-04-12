@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Volume2, Loader2, FileText, Share2, BookOpen } from "lucide-react"
+import { Volume2, Loader2, FileText, Share2, BookOpen, Waves } from "lucide-react"
 import ReactMarkdown from "react-markdown"
 
 const LANGUAGE_NAMES: Record<string, string> = {
@@ -42,6 +42,8 @@ import { Progress } from "@/components/ui/progress"
 import { StepCards } from "./StepCards"
 import { TranslationBadge } from "./TranslationBadge"
 import { synthesiseSpeech } from "@/lib/api"
+import { GovernmentOfficeCardList } from "./GovernmentOfficeCardList"
+import { detectOfficesInResponse } from "@/lib/detect-offices"
 
 export interface Message {
   id: string
@@ -61,6 +63,7 @@ export interface Message {
   audioUrl?: string
   disclaimer?: string
   persona?: string
+  isTriageQuestion?: boolean
 }
 
 interface MessageBubbleProps {
@@ -98,6 +101,22 @@ export function MessageBubble({ message, onViewSource, onShare }: MessageBubbleP
       setIsLoadingAudio(false)
       setIsPlaying(false)
     }
+  }
+
+  if (message.isTriageQuestion) {
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="max-w-[90%] border-l-4 border-amber-500 bg-amber-950/60 rounded-r-2xl px-4 py-3">
+          <div className="flex items-center gap-2 mb-1.5">
+            <Waves className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="text-xs font-semibold text-amber-400 uppercase tracking-wide">
+              Flood Response
+            </span>
+          </div>
+          <p className="text-sm text-amber-200 leading-relaxed">{message.content}</p>
+        </div>
+      </div>
+    )
   }
 
   if (isUser) {
@@ -229,6 +248,12 @@ export function MessageBubble({ message, onViewSource, onShare }: MessageBubbleP
           ))}
         </div>
       )}
+
+      {/* Government Office Cards — rendered outside the response bubble */}
+      <GovernmentOfficeCardList
+        offices={detectOfficesInResponse(message.content)}
+        detectedLanguage={message.detectedLanguage || "en"}
+      />
     </div>
   )
 }

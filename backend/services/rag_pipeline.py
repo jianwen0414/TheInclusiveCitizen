@@ -32,6 +32,7 @@ async def retrieve_relevant_chunks(
     query: str,
     top_k: int = 6,
     threshold: float = 0.25,
+    doc_type_filter: list[str] | None = None,
 ) -> list[RetrievedChunk]:
     """
     Retrieve top-k most relevant document chunks from Vertex AI Search.
@@ -46,10 +47,14 @@ async def retrieve_relevant_chunks(
       (semantic scorer, source citation, confidence field in QueryResponse).
     - metadata carries source_url (GCS URI) and doc_type for citation building.
     - PRD constraint #3: query is NEVER pre-translated (Discovery Engine is multilingual).
+    - doc_type_filter: optional list of doc_type values to restrict retrieval to
+      flood-specific documents (e.g. ['flood_emergency', 'flood_alert']).
     """
     logger.info(f"[RAG] Querying Vertex AI Search: '{query[:100]}'")
 
-    raw_results = await retrieve_context(query, top_k=top_k, threshold=threshold)
+    raw_results = await retrieve_context(
+        query, top_k=top_k, threshold=threshold, doc_type_filter=doc_type_filter
+    )
 
     chunks: list[RetrievedChunk] = []
     for r in raw_results:

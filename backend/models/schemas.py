@@ -40,6 +40,9 @@ class QueryResponse(BaseModel):
     steps: list[str] | None = None
     step_icons: list[str] | None = None
     disclaimer: str | None = None
+    flood_mode: bool | None = None
+    situation_type: str | None = None
+    triage_message: str | None = None
 
 
 # ── /api/translate ────────────────────────────────────────
@@ -125,6 +128,7 @@ class RetrieveRequest(BaseModel):
     query: str
     top_k: int = 6
     threshold: float = 0.25
+    doc_type_filter: list[str] | None = None
 
 
 class RetrievedChunkSchema(BaseModel):
@@ -180,3 +184,16 @@ class ScoreRequest(BaseModel):
 
 class ScoreResponse(BaseModel):
     score: float
+
+
+# ── /api/detect-flood-intent ─────────────────────────────
+
+class FloodIntentRequest(BaseModel):
+    query: str
+    detected_language: str
+
+
+class FloodIntentResponse(BaseModel):
+    is_flood_related: bool
+    situation_type: str | None
+    confidence: float

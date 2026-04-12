@@ -202,3 +202,17 @@
     offset-distance: 100%;
   }
 }
+
+/* Flood background wave animations */
+@keyframes flood-wave-fwd {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+@keyframes flood-wave-rev {
+  0%   { transform: translateX(-50%); }
+  100% { transform: translateX(0); }
+}
+@keyframes flood-swell {
+  0%, 100% { transform: scaleY(1) translateY(0); }
+  50%       { transform: scaleY(1.08) translateY(-6px); }
+}

@@ -13,6 +13,7 @@ import logging
 import os
 
 from google.api_core.client_options import ClientOptions
+from google.api_core.exceptions import InvalidArgument
 from google.cloud.discoveryengine_v1 import SearchRequest, SearchServiceClient
 from supabase import create_client, Client
 
@@ -163,6 +164,7 @@ async def retrieve_context(
     query: str,
     top_k: int = 6,
     threshold: float = 0.25,
+    doc_type_filter: list[str] | None = None,
 ) -> list[dict]:
     """
     Search Vertex AI Search (Discovery Engine) for chunks relevant to query.
@@ -179,6 +181,11 @@ async def retrieve_context(
     - doc_type and gcs_uri are joined from Supabase document_metadata in one call.
     - relevance_score maps to the 'similarity' field in RetrievedChunk for downstream
       compatibility with the existing semantic scorer and source citation logic.
+    - doc_type_filter: when provided, builds a Vertex AI Search filter expression
+      e.g. 'doc_type: ANY("flood_emergency", "flood_alert")'. Requires doc_type to
+      be configured as a filterable field in the Discovery Engine data store schema.
+      If doc_type is not indexed as filterable, the filter is silently ignored by
+      Discovery Engine and all documents are returned (graceful degradation).
 
     Returns list[dict] with keys:
       chunk_text, doc_name, doc_type, page_number, source_url, relevance_score
@@ -203,14 +210,46 @@ async def retrieve_context(
         ),
     )
 
-    request = SearchRequest(
-        serving_config=serving_config,
-        query=query,
-        page_size=top_k,
-        content_search_spec=content_search_spec,
-    )
+    # Build filter expression for flood-specific retrieval when requested.
+    # Syntax: 'doc_type: ANY("flood_emergency", "flood_alert")'
+    # NOTE: Requires doc_type to be a filterable field in the Discovery Engine schema.
+    # If not configured, the filter is silently ignored and all documents are searched.
+    filter_expr: str | None = None
+    if doc_type_filter:
+        quoted = ", ".join(f'"{v}"' for v in doc_type_filter)
+        filter_expr = f"doc_type: ANY({quoted})"
+        logger.info(f"[Retriever] Applying doc_type filter: {filter_expr}")
 
-    response = client.search(request=request)
+    def _build_request(filter_str: str | None) -> SearchRequest:
+        # Construct SearchRequest directly (not via **kwargs) to ensure compatibility
+        # with the protobuf message constructor — filter is set as an attribute only
+        # when non-empty to avoid sending a blank filter that could suppress results.
+        req = SearchRequest(
+            serving_config=serving_config,
+            query=query,
+            page_size=top_k,
+            content_search_spec=content_search_spec,
+        )
+        if filter_str:
+            req.filter = filter_str
+        return req
+
+    # When a filter expression is provided, attempt the filtered search first.
+    # If Discovery Engine rejects it with InvalidArgument (field not configured
+    # as filterable in the data store schema), fall back to an unfiltered search
+    # rather than propagating a 500 error.
+    try:
+        response = client.search(request=_build_request(filter_expr))
+    except InvalidArgument as exc:
+        if filter_expr:
+            logger.warning(
+                f"[Retriever] Filter expression rejected by Discovery Engine "
+                f"({exc.message.splitlines()[0]}); retrying without filter"
+            )
+            filter_expr = None
+            response = client.search(request=_build_request(None))
+        else:
+            raise
 
     # Collect raw results before the Supabase metadata join
     raw_results: list[dict] = []
@@ -232,6 +271,27 @@ async def retrieve_context(
             "chunk_text": chunk_text,
             "page_number": page_number,
         })
+
+    # If a doc_type filter was applied and returned 0 results, retry without the filter.
+    # This handles the case where doc_type is not indexed as a filterable attribute in
+    # Discovery Engine (graceful degradation) or the filter was too restrictive.
+    if not raw_results and filter_expr:
+        logger.info(
+            f"[Retriever] Filtered search returned 0 results; retrying without doc_type filter"
+        )
+        response = client.search(request=_build_request(None))
+        for search_result in response.results:
+            doc_name = _extract_doc_name(search_result)
+            chunk_text, page_number = _extract_chunk_text_and_page(search_result)
+            relevance_score = float(getattr(search_result, "relevance_score", 0.0))
+            if not chunk_text:
+                chunk_text = doc_name
+            raw_results.append({
+                "doc_name": doc_name,
+                "relevance_score": relevance_score,
+                "chunk_text": chunk_text,
+                "page_number": page_number,
+            })
 
     if not raw_results:
         logger.warning(f"[Retriever] Vertex AI Search returned 0 results for: '{query[:80]}'")

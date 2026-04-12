@@ -19,6 +19,7 @@ load_dotenv()
 _APP_LOGGERS = [
     "routers.query",
     "routers.steps",
+    "routers.flood",
     "services.rag_pipeline",
     "services.llm_service",
     "services.simplifier",
@@ -54,6 +55,7 @@ app.add_middleware(
 
 # ── Router registration (PRD Section 7.1, Table 10) ──────
 
+from routers.flood import router as flood_router             # noqa: E402
 from routers.health import router as health_router           # noqa: E402
 from routers.ingest import router as ingest_router           # noqa: E402
 from routers.pipeline import router as pipeline_router       # noqa: E402
@@ -63,6 +65,7 @@ from routers.translate import router as translate_router     # noqa: E402
 from routers.transcribe import router as transcribe_router   # noqa: E402
 from routers.synthesise import router as synthesise_router   # noqa: E402
 
+app.include_router(flood_router)
 app.include_router(health_router)
 app.include_router(ingest_router)
 app.include_router(pipeline_router)

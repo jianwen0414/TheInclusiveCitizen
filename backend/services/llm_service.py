@@ -17,7 +17,9 @@ import logging
 import os
 import re
 import httpx
-from google import genai
+import google.auth
+import google.auth.transport.requests
+import google.auth.credentials
 from google.genai import types
 
 from utils.prompt_templates import (
@@ -30,6 +32,146 @@ from utils.fallback_handler import fallback_state
 from utils.language_router import get_language_name
 
 logger = logging.getLogger(__name__)
+
+# ── Vertex AI REST credential cache ─────────────────────────────────────────
+# Shared across all async calls; protected by a lock to avoid redundant refreshes.
+_gcp_credentials: google.auth.credentials.Credentials | None = None
+_gcp_credentials_lock = asyncio.Lock()
+
+
+async def _get_vertex_token() -> str:
+    """Return a valid Bearer token for Vertex AI, refreshing if expired."""
+    global _gcp_credentials
+    async with _gcp_credentials_lock:
+        if _gcp_credentials is None:
+            _gcp_credentials, _ = google.auth.default(
+                scopes=["https://www.googleapis.com/auth/cloud-platform"]
+            )
+        creds = _gcp_credentials
+        if not creds.valid:
+            req = google.auth.transport.requests.Request()
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, creds.refresh, req)
+        return creds.token
+
+
+async def _generate_via_vertex_rest(
+    contents: str,
+    config: types.GenerateContentConfig,
+    model: str,
+    project: str,
+) -> str:
+    """
+    Direct Vertex AI REST call that reads EVERY SSE frame.
+
+    Replaces client.aio.models.generate_content which, despite being async,
+    still intermittently captures only the first SSE frame on the Vertex AI
+    `global` endpoint (google-genai SDK v1.67.0, confirmed across sync and
+    async paths).
+
+    Uses :streamGenerateContent?alt=sse and concatenates all text parts from
+    all frames so the returned string is always the complete model output.
+    """
+    location = "global" if "preview" in model else "us-central1"
+
+    # ── Extract config fields ────────────────────────────────────────────────
+    temperature = getattr(config, "temperature", 0.3) or 0.3
+    max_output_tokens = getattr(config, "max_output_tokens", 2048) or 2048
+    response_mime_type = getattr(config, "response_mime_type", None)
+
+    # system_instruction may be a plain string or an SDK Content/Part object
+    sys_raw = getattr(config, "system_instruction", None)
+    if sys_raw is None:
+        sys_text: str | None = None
+    elif isinstance(sys_raw, str):
+        sys_text = sys_raw
+    else:
+        try:
+            sys_text = "".join(
+                getattr(p, "text", "") or ""
+                for p in (getattr(sys_raw, "parts", None) or [])
+            )
+        except Exception:
+            sys_text = str(sys_raw)
+
+    token = await _get_vertex_token()
+    url = (
+        f"https://aiplatform.googleapis.com/v1/projects/{project}/"
+        f"locations/{location}/publishers/google/models/{model}"
+        ":streamGenerateContent?alt=sse"
+    )
+
+    gen_config: dict = {
+        "temperature": temperature,
+        "maxOutputTokens": max_output_tokens,
+    }
+    if response_mime_type:
+        gen_config["responseMimeType"] = response_mime_type
+
+    payload: dict = {
+        "contents": [{"role": "user", "parts": [{"text": contents}]}],
+        "generationConfig": gen_config,
+    }
+    if sys_text:
+        payload["systemInstruction"] = {"parts": [{"text": sys_text}]}
+
+    text_parts: list[str] = []
+
+    # Use a non-streaming request so httpx waits for the server to close the
+    # connection and returns the COMPLETE response body in one go.
+    #
+    # The previous streaming approach (client.stream + aiter_lines) had a
+    # race condition where httpx's async generator could return before the
+    # final SSE frame arrived, silently dropping the last text chunk.
+    # Buffering the full body eliminates that race entirely.
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(120.0, connect=15.0)
+    ) as client:
+        response = await client.post(
+            url,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+        )
+
+    if response.status_code >= 400:
+        raise Exception(
+            f"HTTP {response.status_code}: {response.text[:400]}"
+        )
+
+    # Parse every line of the complete body.
+    # Vertex AI global endpoint wraps each JSON chunk in SSE "data: {...}" lines.
+    # Vertex AI regional endpoints return a single plain JSON object.
+    # This loop handles both formats.
+    for line in response.text.splitlines():
+        if line.startswith("data: "):
+            data_str = line[6:]
+            if data_str.strip() in ("[DONE]", ""):
+                continue
+            try:
+                frame = json.loads(data_str)
+            except json.JSONDecodeError:
+                continue
+        elif line.startswith("{"):
+            # Plain JSON (regional endpoint, non-SSE response)
+            try:
+                frame = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+        else:
+            continue
+
+        try:
+            for candidate in frame.get("candidates", []):
+                for part in (candidate.get("content", {}).get("parts") or []):
+                    if t := part.get("text", ""):
+                        text_parts.append(t)
+        except (KeyError, TypeError):
+            pass
+
+    return "".join(text_parts)
 
 
 # ── SEA-LION v4 (Primary LLM) ───────────────────────────
@@ -87,41 +229,31 @@ def _gemini_models_priority() -> list[str]:
     return result
 
 
-def _get_gemini_client(location: str = "us-central1") -> genai.Client:
-    project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
-    os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
-    return genai.Client(vertexai=True, project=project, location=location)
-
-
-def _location_for_model(model: str) -> str:
-    """
-    Vertex AI requires different locations per model family:
-    - Stable GA models use versioned IDs (gemini-2.0-flash-001, etc.)
-      and are served at regional endpoints such as us-central1.
-    - Preview models are only available at location="global".
-    """
-    if "preview" in model:
-        return "global"
-    return "us-central1"
-
 
 async def _generate_with_fallback_model(
     contents: str,
     config: types.GenerateContentConfig,
 ) -> str:
+    """
+    Try each model in priority order.  Each model gets one automatic retry on
+    rate-limit (429 / RESOURCE_EXHAUSTED) before falling to the next.
+
+    Uses _generate_via_vertex_rest which calls the Vertex AI REST streaming
+    endpoint directly — guaranteeing the complete response is collected from
+    every SSE frame rather than only the first.
+    """
+    project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
     last_exc: Exception | None = None
     for model_name in _gemini_models_priority():
-        location = _location_for_model(model_name)
-        client = _get_gemini_client(location)
-        # Retry once on 429 (rate limit) before moving to the next model.
         for attempt in range(2):
             try:
-                response = client.models.generate_content(
-                    model=model_name,
+                text = await _generate_via_vertex_rest(
                     contents=contents,
                     config=config,
+                    model=model_name,
+                    project=project,
                 )
-                return response.text
+                return text
             except Exception as exc:
                 err_str = str(exc)
                 is_rate_limited = "429" in err_str or "RESOURCE_EXHAUSTED" in err_str
