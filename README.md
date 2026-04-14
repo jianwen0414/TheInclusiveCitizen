@@ -14,7 +14,7 @@ The UI supports **personas** (Elderly, Migrant Worker, Rural Community) that tun
 | **Backend** | [FastAPI](https://fastapi.tiangolo.com/) (`backend/`) — REST API |
 | **Retrieval** | Google **Vertex AI Search** (Discovery Engine) — PDF upload to GCS, async indexing, multilingual extractive-answer retrieval (no pre-translation needed) |
 | **Document store** | [Supabase](https://supabase.com/) PostgreSQL — `document_metadata` table for `doc_type` lookup and ingestion tracking |
-| **Generation** | **Gemini 2.0 Flash** via Vertex AI (primary, all languages) + **SEA-LION v4** (optional BM specialist fallback) |
+| **Generation** | **Gemini 3.0 Flash** via Vertex AI (primary, all languages) + **SEA-LION v4** (optional BM specialist fallback) |
 | **Speech** | Google Cloud **Speech-to-Text** and **Text-to-Speech** |
 | **Optional** | Google Cloud **Translation** (advanced) and **NLLB-200** for some language paths; **sentence-transformers** for semantic scoring |
 

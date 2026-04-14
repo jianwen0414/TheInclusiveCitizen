@@ -9,8 +9,8 @@ import { ai } from "../ai.js";
 const FASTAPI_BASE_URL = process.env.FASTAPI_BASE_URL ?? "http://localhost:8000";
 
 export const ComputeSemanticScoreInputSchema = z.object({
-  original_bm_text: z.string(),
-  translated_simplified_text: z.string(),
+  source_text: z.string(),       // LLM-generated answer before simplification (target language)
+  simplified_text: z.string(),   // simplified answer after simplification (same target language)
 });
 
 export const ComputeSemanticScoreOutputSchema = z.object({
@@ -24,11 +24,11 @@ export const computeSemanticScoreTool = ai.defineTool(
   {
     name: "compute_semantic_score",
     description:
-      "Compute cross-lingual semantic similarity between the original BM source chunk " +
-      "and the final translated + simplified answer using " +
-      "paraphrase-multilingual-MiniLM-L12-v2. Returns a cosine similarity score " +
-      "between 0.0 and 1.0. Scores below 0.45 for ms/en/id trigger a conservative " +
-      "simplification retry.",
+      "Compute simplification fidelity: cosine similarity between the LLM-generated " +
+      "answer (before simplification) and the simplified answer (after simplification) " +
+      "using paraphrase-multilingual-MiniLM-L12-v2. Both inputs are in the same target " +
+      "language, making scoring language-agnostic. Returns a score between 0.0 and 1.0. " +
+      "Scores below 0.70 for ms/en/id trigger a conservative simplification retry.",
     inputSchema: ComputeSemanticScoreInputSchema,
     outputSchema: ComputeSemanticScoreOutputSchema,
   },

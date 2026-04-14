@@ -178,8 +178,8 @@ class SimplifyResponse(BaseModel):
 # ── /api/score (internal pipeline endpoint) ─────────────
 
 class ScoreRequest(BaseModel):
-    original_bm_text: str
-    translated_simplified_text: str
+    source_text: str       # LLM-generated answer before simplification (target language)
+    simplified_text: str   # simplified answer after simplification (same target language)
 
 
 class ScoreResponse(BaseModel):

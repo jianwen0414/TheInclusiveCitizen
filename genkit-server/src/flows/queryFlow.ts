@@ -22,7 +22,7 @@ import { synthesiseSpeechTool } from "../tools/synthesiseSpeech.js";
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const SCORE_THRESHOLD = 0.45;
+const SCORE_THRESHOLD = 0.70;
 const DISPLAY_SEMANTIC_SCORE_MIN = 0.6;
 const LLM_DIRECT_LANGUAGES = new Set([
   "ms", "en", "id", "jv", "zh", "hi", "ta", "th", "vi", "tl",
@@ -98,6 +98,24 @@ export type QueryFlowOutput = z.infer<typeof QueryFlowOutputSchema>;
 
 // ── Flow definition ──────────────────────────────────────────────────────────
 
+// ── Timing helpers ───────────────────────────────────────────────────────────
+
+function now(): number {
+  return performance.now();
+}
+
+function ms(start: number): string {
+  return `${(performance.now() - start).toFixed(0)}ms`;
+}
+
+function logStep(step: string, start: number, extra?: string): void {
+  const duration = performance.now() - start;
+  const bar = "█".repeat(Math.min(Math.round(duration / 500), 20));
+  console.log(
+    `[TIMING] ${step.padEnd(30)} ${String(Math.round(duration) + "ms").padStart(7)}  ${bar}${extra ? "  " + extra : ""}`
+  );
+}
+
 export const inclusiveCitizenQueryFlow = ai.defineFlow(
   {
     name: "inclusive_citizen_query_flow",
@@ -106,6 +124,11 @@ export const inclusiveCitizenQueryFlow = ai.defineFlow(
     streamSchema: z.string(), // streaming chunks are step-name strings
   },
   async (input: QueryFlowInput, sendChunk): Promise<QueryFlowOutput> => {
+    const flowStart = now();
+    const timings: Record<string, number> = {};
+    console.log("[TIMING] ══════════════════════════════════════════════════");
+    console.log("[TIMING] Pipeline start");
+
     let query = input.query;
     let language = input.language ?? null;
     let disclaimer: string | null = null;
@@ -120,19 +143,20 @@ export const inclusiveCitizenQueryFlow = ai.defineFlow(
     // ── Step 0 (optional): Transcribe audio ─────────────────────────────────
     if (input.audio_base64) {
       sendChunk?.("step:transcribe_audio");
+      const t0 = now();
       const r = await transcribeAudioTool({
         audio_base64: input.audio_base64,
         audio_format: "webm",
       });
+      timings.transcribe_audio = performance.now() - t0;
+      logStep("transcribe_audio", t0, `lang=${r.detected_language}`);
       query = r.text;
       if (!language) language = r.detected_language;
     }
 
     // ── Step 0b: Flood intent detection ─────────────────────────────────────
-    // Runs before dialect detection using input.language as a hint.
-    // Flood intent classification is language-agnostic so this is sufficient.
-    // Failure is non-fatal — the pipeline continues as a non-flood query.
     sendChunk?.("step:detect_flood_intent");
+    const tFlood = now();
     try {
       const floodResult = await detectFloodIntentTool({
         query,
@@ -149,30 +173,37 @@ export const inclusiveCitizenQueryFlow = ai.defineFlow(
         });
         docTypeFilter = triage.retrieval_filter;
         floodSystemContext = triage.system_context;
-        // TODO(future): support a full conversation turn — await explicit user
-        // confirmation before continuing. For hackathon scope the flow continues
-        // immediately and surfaces the triage prompt as an informational message.
         triageMessage = triage.triage_prompt || null;
       }
     } catch {
       // Flood detection failure is non-fatal — continue as non-flood query
     }
+    timings.detect_flood_intent = performance.now() - tFlood;
+    logStep("detect_flood_intent", tFlood, floodMode ? "FLOOD MODE" : "non-flood");
 
     // ── Step 1: Detect dialect ───────────────────────────────────────────────
     sendChunk?.("step:detect_dialect");
+    const tDialect = now();
     const dr = await detectDialectTool({ query, language_hint: language });
+    timings.detect_dialect = performance.now() - tDialect;
     const detectedLanguage = dr.detected_language;
     const targetLang = dr.target_lang;
     const dialectCode = detectedLanguage.startsWith("ms-") ? detectedLanguage : targetLang;
+    logStep("detect_dialect", tDialect, `detected=${detectedLanguage} target=${targetLang}`);
 
     // ── Steps 2–3: RAG retrieval ─────────────────────────────────────────────
     sendChunk?.("step:retrieve_documents");
+    const tRag = now();
     const rag = await retrieveDocumentsTool({
       query,
       doc_type_filter: docTypeFilter,
     });
+    timings.retrieve_documents = performance.now() - tRag;
+    logStep("retrieve_documents", tRag, `chunks=${rag.chunks.length} confidence=${rag.confidence.toFixed(2)}`);
 
     if (rag.chunks.length === 0) {
+      console.log(`[TIMING] Pipeline ended early (no chunks)  total=${ms(flowStart)}`);
+      console.log("[TIMING] ══════════════════════════════════════════════════");
       return {
         answer:
           "I could not find relevant information in the official documents. " +
@@ -197,58 +228,67 @@ export const inclusiveCitizenQueryFlow = ai.defineFlow(
 
     // ── Step 4: LLM answer generation ───────────────────────────────────────
     sendChunk?.("step:generate_answer");
-    // Prepend flood system context to RAG context when in flood mode so the
-    // LLM prioritises emergency safety or relief assistance appropriately.
     const contextForLlm = floodSystemContext
       ? `EMERGENCY CONTEXT: ${floodSystemContext}\n\n${rag.context}`
       : rag.context;
+    const tLlm = now();
     const llm = await generateBmAnswerTool({
       context: contextForLlm,
       query,
       target_lang: targetLang,
       dialect_code: dialectCode,
     });
+    timings.generate_answer = performance.now() - tLlm;
     let answer = llm.answer;
     const llmModel = llm.llm_model;
     let translationModel = "none";
+    logStep("generate_answer", tLlm, `model=${llmModel}`);
 
     // ── Step 5 (conditional): Translation ───────────────────────────────────
     if (!LLM_DIRECT_LANGUAGES.has(targetLang)) {
       sendChunk?.("step:translate_answer");
+      const tTr = now();
       const tr = await translateAnswerTool({
         text: answer,
         source_lang: "en",
         target_lang: targetLang,
       });
+      timings.translate_answer = performance.now() - tTr;
       answer = tr.translated_text;
       translationModel = tr.translation_model;
+      logStep("translate_answer", tTr, `model=${tr.translation_model} lang=${targetLang}`);
     }
 
     // ── Step 6: Simplify + Hijri enrichment ─────────────────────────────────
     sendChunk?.("step:simplify_answer");
     const languageName = getLanguageName(targetLang);
+    const tSimp = now();
     const simp = await simplifyAnswerTool({
       text: answer,
       language: languageName,
       conservative: false,
       enrich_hijri: true,
     });
+    timings.simplify_answer = performance.now() - tSimp;
     let simplifiedAnswer = simp.simplified_text;
     let readabilityGrade = simp.readability_grade;
+    logStep("simplify_answer", tSimp, `grade=${readabilityGrade.toFixed(1)}`);
 
     // ── Step 7: Semantic preservation score ─────────────────────────────────
     sendChunk?.("step:compute_semantic_score");
+    const tScore = now();
     const sc = await computeSemanticScoreTool({
-      original_bm_text: rag.original_chunk_text,
-      translated_simplified_text: simplifiedAnswer,
+      source_text: answer,
+      simplified_text: simplifiedAnswer,
     });
+    timings.compute_semantic_score = performance.now() - tScore;
     let semanticScore = sc.score;
+    logStep("compute_semantic_score", tScore, `score=${semanticScore.toFixed(3)}`);
 
     // ── Step 8: Conservative retry if score too low ──────────────────────────
-    // Retry uses `answer` (pre-simplification text) — NOT simplifiedAnswer.
-    // Hijri enrichment is NOT applied on the retry.
     if (SCORE_CHECK_LANGUAGES.has(targetLang) && semanticScore < SCORE_THRESHOLD) {
       sendChunk?.("step:simplify_answer_retry");
+      const tRetry = now();
       const retry = await simplifyAnswerTool({
         text: answer,
         language: languageName,
@@ -256,9 +296,11 @@ export const inclusiveCitizenQueryFlow = ai.defineFlow(
         enrich_hijri: false,
       });
       const retrySc = await computeSemanticScoreTool({
-        original_bm_text: rag.original_chunk_text,
-        translated_simplified_text: retry.simplified_text,
+        source_text: answer,
+        simplified_text: retry.simplified_text,
       });
+      timings.simplify_answer_retry = performance.now() - tRetry;
+      logStep("simplify_answer_retry", tRetry, `score ${semanticScore.toFixed(3)} → ${retrySc.score.toFixed(3)}`);
       if (retrySc.score > semanticScore) {
         simplifiedAnswer = retry.simplified_text;
         readabilityGrade = retry.readability_grade;
@@ -275,6 +317,7 @@ export const inclusiveCitizenQueryFlow = ai.defineFlow(
     // ── Step 9: TTS synthesis (non-blocking) ────────────────────────────────
     sendChunk?.("step:synthesise_speech");
     let audioUrl: string | null = null;
+    const tTts = now();
     try {
       const tts = await synthesiseSpeechTool({
         text: simplifiedAnswer,
@@ -285,6 +328,21 @@ export const inclusiveCitizenQueryFlow = ai.defineFlow(
     } catch {
       // TTS failure is non-fatal — continue without audio
     }
+    timings.synthesise_speech = performance.now() - tTts;
+    logStep("synthesise_speech", tTts, audioUrl ? "ok" : "skipped/failed");
+
+    // ── Timing summary ───────────────────────────────────────────────────────
+    const totalMs = performance.now() - flowStart;
+    const accountedMs = Object.values(timings).reduce((a, b) => a + b, 0);
+    console.log("[TIMING] ──────────────────────────────────────────────────");
+    const sorted = Object.entries(timings).sort(([, a], [, b]) => b - a);
+    for (const [step, dur] of sorted) {
+      const pct = ((dur / totalMs) * 100).toFixed(1);
+      console.log(`[TIMING]   ${step.padEnd(28)} ${String(Math.round(dur) + "ms").padStart(7)}  (${pct}%)`);
+    }
+    console.log(`[TIMING] ──────────────────────────────────────────────────`);
+    console.log(`[TIMING] TOTAL                          ${String(Math.round(totalMs) + "ms").padStart(7)}  (overhead: ${Math.round(totalMs - accountedMs)}ms)`);
+    console.log("[TIMING] ══════════════════════════════════════════════════");
 
     // ── Build sources list ───────────────────────────────────────────────────
     const sources = rag.chunks.map((c: RetrievedChunk) => ({

@@ -33,31 +33,6 @@ def compute_readability(text: str) -> float:
         return 0.0
 
 
-def extract_jargon_terms(text: str) -> list[str]:
-    """
-    Stage 1: Extract legal/medical jargon using spaCy NER.
-    PRD F04: Named entity extraction using spaCy.
-    """
-    try:
-        import spacy
-
-        try:
-            nlp = spacy.load("en_core_web_sm")
-        except OSError:
-            logger.warning("spaCy model not found, skipping jargon extraction")
-            return []
-
-        doc = nlp(text)
-        jargon = []
-        for ent in doc.ents:
-            if ent.label_ in ("LAW", "ORG", "GPE", "MONEY", "DATE", "NORP"):
-                jargon.append(ent.text)
-        return jargon
-    except Exception as exc:
-        logger.warning(f"Jargon extraction failed: {exc}")
-        return []
-
-
 async def simplify_text(
     text: str,
     language: str = "en",
@@ -85,8 +60,9 @@ async def simplify_text(
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.2,
-                max_output_tokens=2048,
+                max_output_tokens=8192,
             ),
+            disable_thinking=True,
         )
         simplified = simplified.strip()
         grade = compute_readability(simplified)

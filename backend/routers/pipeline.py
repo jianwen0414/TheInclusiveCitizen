@@ -156,12 +156,13 @@ async def simplify_endpoint(request: SimplifyRequest):
 @router.post("/score", response_model=ScoreResponse)
 async def score_endpoint(request: ScoreRequest):
     """
-    Compute cross-lingual semantic similarity score between source BM text and final answer.
+    Compute simplification fidelity score between LLM answer (before simplification)
+    and simplified answer (after simplification). Both are in the same target language.
     """
     try:
         score = _compute_semantic_score(
-            original_bm_text=request.original_bm_text,
-            translated_simplified_text=request.translated_simplified_text,
+            source_text=request.source_text,
+            simplified_text=request.simplified_text,
         )
         return ScoreResponse(score=score)
     except Exception as exc:

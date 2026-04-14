@@ -195,8 +195,8 @@ async def inclusive_citizen_query_flow(
     # ── Step 7: Semantic preservation score ─────────────────────────────────
     ctx.send_chunk("step:compute_semantic_score")
     sc = await compute_semantic_score_tool(ComputeSemanticScoreInput(
-        original_bm_text=rag.original_chunk_text,
-        translated_simplified_text=simplified_answer,
+        source_text=answer,
+        simplified_text=simplified_answer,
     ))
     semantic_score = sc.score
 
@@ -216,8 +216,8 @@ async def inclusive_citizen_query_flow(
             enrich_hijri=False,
         ))
         retry_sc = await compute_semantic_score_tool(ComputeSemanticScoreInput(
-            original_bm_text=rag.original_chunk_text,
-            translated_simplified_text=retry.simplified_text,
+            source_text=answer,
+            simplified_text=retry.simplified_text,
         ))
         if retry_sc.score > semantic_score:
             simplified_answer = retry.simplified_text

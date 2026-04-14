@@ -1,6 +1,6 @@
 """
-LLM Service — Gemini 3 Flash Preview (primary) + SEA-LION v4 (optional BM specialist fallback)
-Primary model configured via GEMINI_MODEL_ID env var (default: gemini-3-flash-preview).
+LLM Service — gemini-2.5-flash (primary) + SEA-LION v4 (optional BM specialist fallback)
+Primary model configured via GEMINI_MODEL_ID env var (default: gemini-2.5-flash).
 SEA-LION v4 model: "aisingapore/Gemma-SEA-LION-v4-27B-IT"
   — only used when SEALION_API_KEY is set AND target output is a BM dialect.
 PRD Constraint #1: LLM must only answer from retrieved context.
@@ -60,20 +60,19 @@ async def _generate_via_vertex_rest(
     config: types.GenerateContentConfig,
     model: str,
     project: str,
+    disable_thinking: bool = False,
 ) -> str:
     """
-    Direct Vertex AI REST call that reads EVERY SSE frame.
+    Direct Vertex AI REST call using the us-central1 :generateContent endpoint.
 
-    Replaces client.aio.models.generate_content which, despite being async,
-    still intermittently captures only the first SSE frame on the Vertex AI
-    `global` endpoint (google-genai SDK v1.67.0, confirmed across sync and
-    async paths).
+    All models in the chain are stable GA models served at us-central1.
+    :generateContent returns a single plain JSON object — no SSE, no streaming,
+    no partial-frame truncation possible.
 
-    Uses :streamGenerateContent?alt=sse and concatenates all text parts from
-    all frames so the returned string is always the complete model output.
+    disable_thinking: when True, injects thinkingConfig.thinkingBudget=0 to
+    suppress extended thinking on the model. Use for mechanical tasks (e.g.
+    text simplification) where thinking adds latency without quality benefit.
     """
-    location = "global" if "preview" in model else "us-central1"
-
     # ── Extract config fields ────────────────────────────────────────────────
     temperature = getattr(config, "temperature", 0.3) or 0.3
     max_output_tokens = getattr(config, "max_output_tokens", 2048) or 2048
@@ -96,9 +95,8 @@ async def _generate_via_vertex_rest(
 
     token = await _get_vertex_token()
     url = (
-        f"https://aiplatform.googleapis.com/v1/projects/{project}/"
-        f"locations/{location}/publishers/google/models/{model}"
-        ":streamGenerateContent?alt=sse"
+        f"https://us-central1-aiplatform.googleapis.com/v1/projects/{project}/"
+        f"locations/us-central1/publishers/google/models/{model}:generateContent"
     )
 
     gen_config: dict = {
@@ -107,6 +105,8 @@ async def _generate_via_vertex_rest(
     }
     if response_mime_type:
         gen_config["responseMimeType"] = response_mime_type
+    if disable_thinking:
+        gen_config["thinkingConfig"] = {"thinkingBudget": 0}
 
     payload: dict = {
         "contents": [{"role": "user", "parts": [{"text": contents}]}],
@@ -115,18 +115,7 @@ async def _generate_via_vertex_rest(
     if sys_text:
         payload["systemInstruction"] = {"parts": [{"text": sys_text}]}
 
-    text_parts: list[str] = []
-
-    # Use a non-streaming request so httpx waits for the server to close the
-    # connection and returns the COMPLETE response body in one go.
-    #
-    # The previous streaming approach (client.stream + aiter_lines) had a
-    # race condition where httpx's async generator could return before the
-    # final SSE frame arrived, silently dropping the last text chunk.
-    # Buffering the full body eliminates that race entirely.
-    async with httpx.AsyncClient(
-        timeout=httpx.Timeout(120.0, connect=15.0)
-    ) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
         response = await client.post(
             url,
             json=payload,
@@ -141,35 +130,13 @@ async def _generate_via_vertex_rest(
             f"HTTP {response.status_code}: {response.text[:400]}"
         )
 
-    # Parse every line of the complete body.
-    # Vertex AI global endpoint wraps each JSON chunk in SSE "data: {...}" lines.
-    # Vertex AI regional endpoints return a single plain JSON object.
-    # This loop handles both formats.
-    for line in response.text.splitlines():
-        if line.startswith("data: "):
-            data_str = line[6:]
-            if data_str.strip() in ("[DONE]", ""):
-                continue
-            try:
-                frame = json.loads(data_str)
-            except json.JSONDecodeError:
-                continue
-        elif line.startswith("{"):
-            # Plain JSON (regional endpoint, non-SSE response)
-            try:
-                frame = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-        else:
-            continue
-
-        try:
-            for candidate in frame.get("candidates", []):
-                for part in (candidate.get("content", {}).get("parts") or []):
-                    if t := part.get("text", ""):
-                        text_parts.append(t)
-        except (KeyError, TypeError):
-            pass
+    # Direct JSON parse — us-central1 :generateContent returns a single JSON object
+    data = response.json()
+    text_parts: list[str] = []
+    for candidate in data.get("candidates", []):
+        for part in (candidate.get("content", {}).get("parts") or []):
+            if t := part.get("text", ""):
+                text_parts.append(t)
 
     return "".join(text_parts)
 
@@ -202,7 +169,7 @@ async def generate_answer_sealion(
                     {"role": "user", "content": user_prompt},
                 ],
                 "temperature": 0.3,
-                "max_tokens": 2048,
+                "max_tokens": 8192,
             },
         )
         response.raise_for_status()
@@ -211,15 +178,12 @@ async def generate_answer_sealion(
 
 
 # ── Gemini primary chain ─────────────────────────────────
-# Primary model is read from GEMINI_MODEL_ID at call time (default: gemini-2.0-flash).
-# Remaining chain provides automatic model-level fallback on quota/availability errors.
+# Primary model is read from GEMINI_MODEL_ID at call time (default: gemini-2.5-flash).
+# gemini-2.5-flash is a stable GA model served at us-central1 — plain JSON response,
+# no SSE, no truncation possible.  SEA-LION v4 handles the BM fallback at a higher level.
 def _gemini_models_priority() -> list[str]:
-    primary = os.getenv("GEMINI_MODEL_ID", "gemini-3-flash-preview")
-    # All current models are preview and served at location="global".
-    chain = [
-        "gemini-3-flash-preview",   # Primary (global)
-        "gemini-2.5-flash-preview", # Fallback preview (global)
-    ]
+    primary = os.getenv("GEMINI_MODEL_ID", "gemini-2.5-flash")
+    chain = ["gemini-2.5-flash"]
     seen: set[str] = {primary}
     result: list[str] = [primary]
     for m in chain:
@@ -233,14 +197,17 @@ def _gemini_models_priority() -> list[str]:
 async def _generate_with_fallback_model(
     contents: str,
     config: types.GenerateContentConfig,
+    disable_thinking: bool = False,
 ) -> str:
     """
     Try each model in priority order.  Each model gets one automatic retry on
     rate-limit (429 / RESOURCE_EXHAUSTED) before falling to the next.
 
-    Uses _generate_via_vertex_rest which calls the Vertex AI REST streaming
-    endpoint directly — guaranteeing the complete response is collected from
-    every SSE frame rather than only the first.
+    Uses _generate_via_vertex_rest which calls the Vertex AI us-central1
+    :generateContent endpoint — plain JSON, no SSE, complete response guaranteed.
+
+    disable_thinking: passed through to _generate_via_vertex_rest; set True for
+    mechanical tasks (simplification) to suppress the model's extended thinking.
     """
     project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
     last_exc: Exception | None = None
@@ -252,6 +219,7 @@ async def _generate_with_fallback_model(
                     config=config,
                     model=model_name,
                     project=project,
+                    disable_thinking=disable_thinking,
                 )
                 return text
             except Exception as exc:
@@ -284,7 +252,7 @@ async def generate_answer_gemini(
         config=types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=0.3,
-            max_output_tokens=2048,
+            max_output_tokens=8192,
         ),
     )
 
@@ -313,7 +281,7 @@ async def generate_answer(
     try:
         answer = await generate_answer_gemini(context, query, answer_language, dialect_code)
         fallback_state.llm_fallback_active = False
-        return answer, os.getenv("GEMINI_MODEL_ID", "gemini-3-flash-preview")
+        return answer, os.getenv("GEMINI_MODEL_ID", "gemini-2.5-flash")
     except Exception as exc:
         logger.warning(f"Gemini primary failed ({exc}); checking SEA-LION v4 secondary…")
 
