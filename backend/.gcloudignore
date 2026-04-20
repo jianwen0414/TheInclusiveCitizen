@@ -1,0 +1,41 @@
+# .gcloudignore — controls what gcloud builds submit uploads to GCS.
+# Without this file the entire backend/ directory (including .venv) is uploaded.
+# .dockerignore is applied later by Docker inside Cloud Build and is separate.
+
+.gcloudignore
+
+# Virtual environments (the biggest offender — torch alone is ~1 GB)
+.venv/
+venv/
+env/
+
+# Cached Python bytecode
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Environment secrets
+.env
+.env.*
+
+# Model weight files
+*.bin
+*.pt
+*.ckpt
+*.safetensors
+*.tar.gz
+*.h5
+
+# Dev and test artefacts
+tests/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Seed documents
+seed_docs/
+
+# IDE metadata
+.idea/
+.vscode/

@@ -503,11 +503,12 @@ async function main() {
         "--use-fake-device-for-media-stream",
         `--use-file-for-fake-audio-capture=${wavForChromium}`,
         "--no-sandbox",
+        "--start-maximized",
       ],
     })
 
     const context = await browser.newContext({
-      viewport: { width: 1400, height: 900 },
+      viewport: null,
       ignoreHTTPSErrors: true,
       permissions: ["microphone"],
     })
@@ -583,20 +584,20 @@ async function main() {
   console.log(transcript)
   console.log("─────────────────────────────\n")
 
-  if (keepOpenMs > 0 && !attachMode) {
-    console.log(`KEEP_OPEN_MS=${keepOpenMs} — browser stays open for inspection.`)
-    await new Promise((r) => setTimeout(r, keepOpenMs))
-  }
-
   if (attachMode) {
     // CDP: closes Playwright connection only; leaves your Chrome running
     await browser.close()
     console.log("Done — disconnected from browser (your window stays open for demo).")
+  } else if (keepOpenMs > 0) {
+    console.log(`KEEP_OPEN_MS=${keepOpenMs} — browser stays open for inspection.`)
+    await new Promise((r) => setTimeout(r, keepOpenMs))
+    await browser.close()
+    console.log("Done.")
   } else if (skipCloseLaunch) {
     console.log("Done — NO_BROWSER_CLOSE: leaving Playwright-launched browser open.")
   } else {
-    await browser.close()
-    console.log("Done.")
+    console.log("Transcript shown — browser stays open. Submit your query manually, then press Ctrl+C to exit.")
+    await new Promise(() => {}) // wait indefinitely
   }
 }
 

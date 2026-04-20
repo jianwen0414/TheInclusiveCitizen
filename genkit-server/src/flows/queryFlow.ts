@@ -196,6 +196,8 @@ export const inclusiveCitizenQueryFlow = ai.defineFlow(
     const tRag = now();
     const rag = await retrieveDocumentsTool({
       query,
+      top_k: 6,
+      threshold: 0.25,
       doc_type_filter: docTypeFilter,
     });
     timings.retrieve_documents = performance.now() - tRag;

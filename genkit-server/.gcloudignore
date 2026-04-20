@@ -1,0 +1,20 @@
+.gcloudignore
+
+# node_modules is the main offender — reinstalled fresh inside Docker
+node_modules/
+
+# Local compiled output — rebuilt inside Docker from src/
+lib/
+
+# Environment secrets
+.env
+.env.*
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE metadata
+.idea/
+.vscode/
+*.DS_Store

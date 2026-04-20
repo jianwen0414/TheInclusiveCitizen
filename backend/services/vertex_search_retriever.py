@@ -57,9 +57,9 @@ def _serving_config_path() -> str:
     NOT the data store resource. Using the data store path here causes a 404.
     The data store path is only used by DocumentServiceClient (vertex_search_ingestor.py).
     """
-    project = os.getenv("GOOGLE_CLOUD_PROJECT", "")
-    location = os.getenv("VERTEX_SEARCH_LOCATION", "us-central1")
-    engine_id = os.getenv("VERTEX_SEARCH_ENGINE_ID", "")
+    project = os.getenv("GOOGLE_CLOUD_PROJECT", "").strip()
+    location = os.getenv("VERTEX_SEARCH_LOCATION", "us-central1").strip()
+    engine_id = os.getenv("VERTEX_SEARCH_ENGINE_ID", "").strip()
     return (
         f"projects/{project}/locations/{location}"
         f"/collections/default_collection"

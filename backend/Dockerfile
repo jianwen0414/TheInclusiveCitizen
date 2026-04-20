@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libgomp1 \
     libglib2.0-0 \
-    libgl1-mesa-glx \
+    libgl1 \
     curl \
   && rm -rf /var/lib/apt/lists/*
 
@@ -26,6 +26,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Download the spaCy multilingual NER model at build time so the first request
 # is not penalised by a cold download.
 RUN python -m spacy download xx_ent_wiki_sm
+
+# Pre-download the sentence-transformers model used by semantic_scorer.py.
+# Without this the container downloads ~470 MB from HuggingFace on every cold
+# start, which triggers rate-limiting (HTTP 429) and causes Cloud Run's startup
+# probe to time out (DEADLINE_EXCEEDED).  Baking the weights into the image
+# trades image size for reliable, fast startup.
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')"
 
 # ── NLLB-200 model weights ────────────────────────────────────────────────────
 # The NLLB-200 distilled model (~2.4 GB) is NOT bundled in this image.
